@@ -17,8 +17,8 @@ def detect_cv2(cfgfile, weightfile, imgfile):
     import cv2
 
     m = Darknet(cfgfile)
-    # m.print_network()
-    # m.load_state_dict(torch.load(weightfile))
+    m.print_network()
+    # m.load_weights(weightfile)
     exit(0)
 
     print("Loading weights from %s... Done!" % (weightfile))

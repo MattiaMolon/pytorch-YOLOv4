@@ -57,77 +57,77 @@ class MaxPoolDark(nn.Module):
         return x
 
 
-class Upsample_expand(nn.Module):
-    def __init__(self, stride=2):
-        super(Upsample_expand, self).__init__()
-        self.stride = stride
+# class Upsample_expand(nn.Module):
+#     def __init__(self, stride=2):
+#         super(Upsample_expand, self).__init__()
+#         self.stride = stride
 
-    def forward(self, x: torch.tensor):
-        assert x.data.dim() == 4
+#     def forward(self, x: torch.tensor):
+#         assert x.data.dim() == 4
 
-        x = (
-            x.view(x.size(0), x.size(1), x.size(2), 1, x.size(3), 1)
-            .expand(
-                x.size(0), x.size(1), x.size(2), self.stride, x.size(3), self.stride
-            )
-            .contiguous()
-            .view(
-                x.size(0), x.size(1), x.size(2) * self.stride, x.size(3) * self.stride
-            )
-        )
+#         x = (
+#             x.view(x.size(0), x.size(1), x.size(2), 1, x.size(3), 1)
+#             .expand(
+#                 x.size(0), x.size(1), x.size(2), self.stride, x.size(3), self.stride
+#             )
+#             .contiguous()
+#             .view(
+#                 x.size(0), x.size(1), x.size(2) * self.stride, x.size(3) * self.stride
+#             )
+#         )
 
-        return x
-
-
-class Upsample_interpolate(nn.Module):
-    def __init__(self, stride):
-        super(Upsample_interpolate, self).__init__()
-        self.stride = stride
-
-    def forward(self, x):
-        assert x.data.dim() == 4
-
-        out = F.interpolate(
-            x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode="nearest"
-        )
-        return out
+#         return x
 
 
-class Reorg(nn.Module):
-    def __init__(self, stride=2):
-        super(Reorg, self).__init__()
-        self.stride = stride
+# class Upsample_interpolate(nn.Module):
+#     def __init__(self, stride):
+#         super(Upsample_interpolate, self).__init__()
+#         self.stride = stride
 
-    def forward(self, x):
-        stride = self.stride
-        assert x.data.dim() == 4
-        B = x.data.size(0)
-        C = x.data.size(1)
-        H = x.data.size(2)
-        W = x.data.size(3)
-        assert H % stride == 0
-        assert W % stride == 0
-        ws = stride
-        hs = stride
-        x = x.view(B, C, H / hs, hs, W / ws, ws).transpose(3, 4).contiguous()
-        x = x.view(B, C, H / hs * W / ws, hs * ws).transpose(2, 3).contiguous()
-        x = x.view(B, C, hs * ws, H / hs, W / ws).transpose(1, 2).contiguous()
-        x = x.view(B, hs * ws * C, H / hs, W / ws)
-        return x
+#     def forward(self, x):
+#         assert x.data.dim() == 4
+
+#         out = F.interpolate(
+#             x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode="nearest"
+#         )
+#         return out
 
 
-class GlobalAvgPool2d(nn.Module):
-    def __init__(self):
-        super(GlobalAvgPool2d, self).__init__()
+# class Reorg(nn.Module):
+#     def __init__(self, stride=2):
+#         super(Reorg, self).__init__()
+#         self.stride = stride
 
-    def forward(self, x):
-        N = x.data.size(0)
-        C = x.data.size(1)
-        H = x.data.size(2)
-        W = x.data.size(3)
-        x = F.avg_pool2d(x, (H, W))
-        x = x.view(N, C)
-        return x
+#     def forward(self, x):
+#         stride = self.stride
+#         assert x.data.dim() == 4
+#         B = x.data.size(0)
+#         C = x.data.size(1)
+#         H = x.data.size(2)
+#         W = x.data.size(3)
+#         assert H % stride == 0
+#         assert W % stride == 0
+#         ws = stride
+#         hs = stride
+#         x = x.view(B, C, H / hs, hs, W / ws, ws).transpose(3, 4).contiguous()
+#         x = x.view(B, C, H / hs * W / ws, hs * ws).transpose(2, 3).contiguous()
+#         x = x.view(B, C, hs * ws, H / hs, W / ws).transpose(1, 2).contiguous()
+#         x = x.view(B, hs * ws * C, H / hs, W / ws)
+#         return x
+
+
+# class GlobalAvgPool2d(nn.Module):
+#     def __init__(self):
+#         super(GlobalAvgPool2d, self).__init__()
+
+#     def forward(self, x):
+#         N = x.data.size(0)
+#         C = x.data.size(1)
+#         H = x.data.size(2)
+#         W = x.data.size(3)
+#         x = F.avg_pool2d(x, (H, W))
+#         x = x.view(N, C)
+#         return x
 
 
 # for route and shortcut
@@ -154,11 +154,10 @@ class Darknet(nn.Module):
         self.height = int(self.blocks[0]["height"])
 
         # create model from blocks
-        self.models = self.create_network(self.blocks)  # merge conv, bn,leaky
-        self.loss = self.models[len(self.models) - 1]
+        self.model = self.create_network(self.blocks)  # merge conv, bn,leaky
+        self.loss = self.model[len(self.model) - 1]
 
-        # TODO: Check what "region" stands for
-        # DONE: no "region" in yolo.cfg!
+        # no "region" block in yolo.cfg!
         # if self.blocks[(len(self.blocks) - 1)]["type"] == "region":
         #     self.anchors = self.loss.anchors
         #     self.num_anchors = self.loss.num_anchors
@@ -174,11 +173,13 @@ class Darknet(nn.Module):
         self.loss = None
         outputs = dict()
         out_boxes = []
+
         for block in self.blocks:
             ind = ind + 1
 
             if block["type"] == "net":
                 continue
+
             elif block["type"] in [
                 "convolutional",
                 "maxpool",
@@ -188,8 +189,9 @@ class Darknet(nn.Module):
                 "softmax",
                 "connected",
             ]:
-                x = self.models[ind](x)
+                x = self.model[ind](x)
                 outputs[ind] = x
+
             elif block["type"] == "route":
                 layers = block["layers"].split(",")
                 layers = [int(i) if int(i) > 0 else int(i) + ind for i in layers]
@@ -232,23 +234,22 @@ class Darknet(nn.Module):
                 elif activation == "relu":
                     x = F.relu(x, inplace=True)
                 outputs[ind] = x
-            elif block["type"] == "region":
-                continue
-                if self.loss:
-                    self.loss = self.loss + self.models[ind](x)
-                else:
-                    self.loss = self.models[ind](x)
-                outputs[ind] = None
+
+            # elif block["type"] == "region":
+            #     continue
+            #     if self.loss:
+            #         self.loss = self.loss + self.model[ind](x)
+            #     else:
+            #         self.loss = self.model[ind](x)
+            #     outputs[ind] = None
+
             elif block["type"] == "yolo":
-                # if self.training:
-                #     pass
-                # else:
-                #     boxes = self.models[ind](x)
-                #     out_boxes.append(boxes)
-                boxes = self.models[ind](x)
+                boxes = self.model[ind](x)
                 out_boxes.append(boxes)
-            elif block["type"] == "cost":
-                continue
+
+            # elif block["type"] == "cost":
+            #     continue
+
             else:
                 print("unknown type %s" % (block["type"]))
 
@@ -267,7 +268,8 @@ class Darknet(nn.Module):
         out_filters = []
         prev_stride = 1
         out_strides = []
-        for conv_id, block in enumerate(blocks):
+        conv_id = 0
+        for block in blocks:
 
             if block["type"] == "net":
                 prev_filters = int(block["channels"])
@@ -498,38 +500,38 @@ class Darknet(nn.Module):
             if block["type"] == "net":
                 continue
             elif block["type"] == "convolutional":
-                model = self.models[ind]
+                model = self.model[ind]
                 batch_normalize = int(block["batch_normalize"])
                 if batch_normalize:
                     start = load_conv_bn(buf, start, model[0], model[1])
                 else:
                     start = load_conv(buf, start, model[0])
-            elif block["type"] == "connected":
-                model = self.models[ind]
-                if block["activation"] != "linear":
-                    start = load_fc(buf, start, model[0])
-                else:
-                    start = load_fc(buf, start, model)
+            # elif block["type"] == "connected":
+            #     model = self.model[ind]
+            #     if block["activation"] != "linear":
+            #         start = load_fc(buf, start, model[0])
+            #     else:
+            #         start = load_fc(buf, start, model)
             elif block["type"] == "maxpool":
                 pass
-            elif block["type"] == "reorg":
-                pass
+            # elif block["type"] == "reorg":
+            #     pass
             elif block["type"] == "upsample":
                 pass
             elif block["type"] == "route":
                 pass
             elif block["type"] == "shortcut":
                 pass
-            elif block["type"] == "region":
-                pass
+            # elif block["type"] == "region":
+            #     pass
             elif block["type"] == "yolo":
                 pass
-            elif block["type"] == "avgpool":
-                pass
-            elif block["type"] == "softmax":
-                pass
-            elif block["type"] == "cost":
-                pass
+            # elif block["type"] == "avgpool":
+            #     pass
+            # elif block["type"] == "softmax":
+            #     pass
+            # elif block["type"] == "cost":
+            #     pass
             else:
                 print("unknown type %s" % (block["type"]))
 
@@ -547,14 +549,14 @@ class Darknet(nn.Module):
     #         ind = ind + 1
     #         block = self.blocks[blockId]
     #         if block['type'] == 'convolutional':
-    #             model = self.models[ind]
+    #             model = self.model[ind]
     #             batch_normalize = int(block['batch_normalize'])
     #             if batch_normalize:
     #                 save_conv_bn(fp, model[0], model[1])
     #             else:
     #                 save_conv(fp, model[0])
     #         elif block['type'] == 'connected':
-    #             model = self.models[ind]
+    #             model = self.model[ind]
     #             if block['activation'] != 'linear':
     #                 save_fc(fc, model)
     #             else:
