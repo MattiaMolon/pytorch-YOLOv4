@@ -1,3 +1,4 @@
+from torch import tensor
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
@@ -61,7 +62,7 @@ class Upsample_expand(nn.Module):
         super(Upsample_expand, self).__init__()
         self.stride = stride
 
-    def forward(self, x):
+    def forward(self, x: torch.tensor):
         assert x.data.dim() == 4
 
         x = (
@@ -142,22 +143,29 @@ class EmptyModule(nn.Module):
 class Darknet(nn.Module):
     def __init__(self, cfgfile, inference=False):
         super(Darknet, self).__init__()
+
+        # what are we using the model for
         self.inference = inference
         self.training = not self.inference
 
+        # read cfg file and divide it into blocks
         self.blocks = parse_cfg(cfgfile)
         self.width = int(self.blocks[0]["width"])
         self.height = int(self.blocks[0]["height"])
 
+        # create model from blocks
         self.models = self.create_network(self.blocks)  # merge conv, bn,leaky
         self.loss = self.models[len(self.models) - 1]
 
-        if self.blocks[(len(self.blocks) - 1)]["type"] == "region":
-            self.anchors = self.loss.anchors
-            self.num_anchors = self.loss.num_anchors
-            self.anchor_step = self.loss.anchor_step
-            self.num_classes = self.loss.num_classes
+        # TODO: Check what "region" stands for
+        # DONE: no "region" in yolo.cfg!
+        # if self.blocks[(len(self.blocks) - 1)]["type"] == "region":
+        #     self.anchors = self.loss.anchors
+        #     self.num_anchors = self.loss.num_anchors
+        #     self.anchor_step = self.loss.anchor_step
+        #     self.num_classes = self.loss.num_classes
 
+        # TODO: needed for weights, understand why
         self.header = torch.IntTensor([0, 0, 0, 0])
         self.seen = 0
 
@@ -168,8 +176,6 @@ class Darknet(nn.Module):
         out_boxes = []
         for block in self.blocks:
             ind = ind + 1
-            # if ind > 0:
-            #    return x
 
             if block["type"] == "net":
                 continue
@@ -255,116 +261,130 @@ class Darknet(nn.Module):
         print_cfg(self.blocks)
 
     def create_network(self, blocks):
-        models = nn.ModuleList()
+        model = nn.ModuleList()
 
         prev_filters = 3
         out_filters = []
         prev_stride = 1
         out_strides = []
-        conv_id = 0
-        for block in blocks:
+        for conv_id, block in enumerate(blocks):
+
             if block["type"] == "net":
                 prev_filters = int(block["channels"])
                 continue
+
             elif block["type"] == "convolutional":
-                conv_id = conv_id + 1
+                conv_id += 1
                 batch_normalize = int(block["batch_normalize"])
                 filters = int(block["filters"])
                 kernel_size = int(block["size"])
                 stride = int(block["stride"])
                 is_pad = int(block["pad"])
-                pad = (kernel_size - 1) // 2 if is_pad else 0
+                pad = (
+                    (kernel_size - 1) // 2 if is_pad else 0
+                )  # padding is defined as size/2 in yolo wiki
                 activation = block["activation"]
-                model = nn.Sequential()
+
+                # add convolutional layer
+                conv = nn.Sequential()
                 if batch_normalize:
-                    model.add_module(
+                    conv.add_module(
                         "conv{0}".format(conv_id),
                         nn.Conv2d(
                             prev_filters, filters, kernel_size, stride, pad, bias=False
                         ),
                     )
-                    model.add_module("bn{0}".format(conv_id), nn.BatchNorm2d(filters))
-                    # model.add_module('bn{0}'.format(conv_id), BN2d(filters))
+                    conv.add_module("bn{0}".format(conv_id), nn.BatchNorm2d(filters))
                 else:
-                    model.add_module(
+                    conv.add_module(
                         "conv{0}".format(conv_id),
                         nn.Conv2d(prev_filters, filters, kernel_size, stride, pad),
                     )
+
+                # add activation function
                 if activation == "leaky":
-                    model.add_module(
+                    conv.add_module(
                         "leaky{0}".format(conv_id), nn.LeakyReLU(0.1, inplace=True)
                     )
                 elif activation == "relu":
-                    model.add_module("relu{0}".format(conv_id), nn.ReLU(inplace=True))
+                    conv.add_module("relu{0}".format(conv_id), nn.ReLU(inplace=True))
                 elif activation == "mish":
-                    model.add_module("mish{0}".format(conv_id), Mish())
+                    conv.add_module("mish{0}".format(conv_id), Mish())
+                elif activation == "linear":
+                    pass
                 else:
-                    print(f"conv{conv_id} hasn't activated. Activation: {activation}")
+                    print(f'conv{conv_id} activation "{activation}" not recognized')
 
+                # update params
                 prev_filters = filters
                 out_filters.append(prev_filters)
                 prev_stride = stride * prev_stride
                 out_strides.append(prev_stride)
-                models.append(model)
+                model.append(conv)
+
             elif block["type"] == "maxpool":
                 pool_size = int(block["size"])
                 stride = int(block["stride"])
+
                 if stride == 1 and pool_size % 2:
-                    # You can use Maxpooldark instead, here is convenient to convert onnx.
-                    # Example: [maxpool] size=3 stride=1
-                    model = nn.MaxPool2d(
+                    maxpool = nn.MaxPool2d(
                         kernel_size=pool_size, stride=stride, padding=pool_size // 2
                     )
                 elif stride == pool_size:
-                    # You can use Maxpooldark instead, here is convenient to convert onnx.
-                    # Example: [maxpool] size=2 stride=2
-                    model = nn.MaxPool2d(
+                    maxpool = nn.MaxPool2d(
                         kernel_size=pool_size, stride=stride, padding=0
                     )
                 else:
-                    model = MaxPoolDark(pool_size, stride)
+                    maxpool = MaxPoolDark(pool_size, stride)
+
                 out_filters.append(prev_filters)
                 prev_stride = stride * prev_stride
                 out_strides.append(prev_stride)
-                models.append(model)
-            elif block["type"] == "avgpool":
-                model = GlobalAvgPool2d()
-                out_filters.append(prev_filters)
-                models.append(model)
-            elif block["type"] == "softmax":
-                model = nn.Softmax()
-                out_strides.append(prev_stride)
-                out_filters.append(prev_filters)
-                models.append(model)
-            elif block["type"] == "cost":
-                if block["_type"] == "sse":
-                    model = nn.MSELoss(reduction="mean")
-                elif block["_type"] == "L1":
-                    model = nn.L1Loss(reduction="mean")
-                elif block["_type"] == "smooth":
-                    model = nn.SmoothL1Loss(reduction="mean")
-                out_filters.append(1)
-                out_strides.append(prev_stride)
-                models.append(model)
-            elif block["type"] == "reorg":
-                stride = int(block["stride"])
-                prev_filters = stride * stride * prev_filters
-                out_filters.append(prev_filters)
-                prev_stride = prev_stride * stride
-                out_strides.append(prev_stride)
-                models.append(Reorg(stride))
+                model.append(maxpool)
+
+            # elif block["type"] == "avgpool":
+            #     model = GlobalAvgPool2d()
+            #     out_filters.append(prev_filters)
+            #     models.append(model)
+
+            # elif block["type"] == "softmax":
+            #     model = nn.Softmax()
+            #     out_strides.append(prev_stride)
+            #     out_filters.append(prev_filters)
+            #     models.append(model)
+
+            # elif block["type"] == "cost":
+            #     if block["_type"] == "sse":
+            #         model = nn.MSELoss(reduction="mean")
+            #     elif block["_type"] == "L1":
+            #         model = nn.L1Loss(reduction="mean")
+            #     elif block["_type"] == "smooth":
+            #         model = nn.SmoothL1Loss(reduction="mean")
+            #     out_filters.append(1)
+            #     out_strides.append(prev_stride)
+            #     models.append(model)
+
+            # elif block["type"] == "reorg":
+            #     stride = int(block["stride"])
+            #     prev_filters = stride * stride * prev_filters
+            #     out_filters.append(prev_filters)
+            #     prev_stride = prev_stride * stride
+            #     out_strides.append(prev_stride)
+            #     models.append(Reorg(stride))
+
             elif block["type"] == "upsample":
                 stride = int(block["stride"])
                 out_filters.append(prev_filters)
                 prev_stride = prev_stride // stride
                 out_strides.append(prev_stride)
 
-                models.append(Upsample_expand(stride))
+                model.append(nn.Upsample(scale_factor=stride, mode="bilinear"))
+                # models.append(Upsample_expand(stride))
                 # models.append(Upsample_interpolate(stride))
 
             elif block["type"] == "route":
                 layers = block["layers"].split(",")
-                ind = len(models)
+                ind = len(model)
                 layers = [int(i) if int(i) > 0 else int(i) + ind for i in layers]
                 if len(layers) == 1:
                     if "groups" not in block.keys() or int(block["groups"]) == 1:
@@ -391,45 +411,49 @@ class Darknet(nn.Module):
 
                 out_filters.append(prev_filters)
                 out_strides.append(prev_stride)
-                models.append(EmptyModule())
+                model.append(EmptyModule())
+
             elif block["type"] == "shortcut":
-                ind = len(models)
+                ind = len(model)
                 prev_filters = out_filters[ind - 1]
                 out_filters.append(prev_filters)
                 prev_stride = out_strides[ind - 1]
                 out_strides.append(prev_stride)
-                models.append(EmptyModule())
-            elif block["type"] == "connected":
-                filters = int(block["output"])
-                if block["activation"] == "linear":
-                    model = nn.Linear(prev_filters, filters)
-                elif block["activation"] == "leaky":
-                    model = nn.Sequential(
-                        nn.Linear(prev_filters, filters),
-                        nn.LeakyReLU(0.1, inplace=True),
-                    )
-                elif block["activation"] == "relu":
-                    model = nn.Sequential(
-                        nn.Linear(prev_filters, filters), nn.ReLU(inplace=True)
-                    )
-                prev_filters = filters
-                out_filters.append(prev_filters)
-                out_strides.append(prev_stride)
-                models.append(model)
-            elif block["type"] == "region":
-                loss = RegionLoss()
-                anchors = block["anchors"].split(",")
-                loss.anchors = [float(i) for i in anchors]
-                loss.num_classes = int(block["classes"])
-                loss.num_anchors = int(block["num"])
-                loss.anchor_step = len(loss.anchors) // loss.num_anchors
-                loss.object_scale = float(block["object_scale"])
-                loss.noobject_scale = float(block["noobject_scale"])
-                loss.class_scale = float(block["class_scale"])
-                loss.coord_scale = float(block["coord_scale"])
-                out_filters.append(prev_filters)
-                out_strides.append(prev_stride)
-                models.append(loss)
+                model.append(EmptyModule())
+
+            # elif block["type"] == "connected":
+            #     filters = int(block["output"])
+            #     if block["activation"] == "linear":
+            #         model = nn.Linear(prev_filters, filters)
+            #     elif block["activation"] == "leaky":
+            #         model = nn.Sequential(
+            #             nn.Linear(prev_filters, filters),
+            #             nn.LeakyReLU(0.1, inplace=True),
+            #         )
+            #     elif block["activation"] == "relu":
+            #         model = nn.Sequential(
+            #             nn.Linear(prev_filters, filters), nn.ReLU(inplace=True)
+            #         )
+            #     prev_filters = filters
+            #     out_filters.append(prev_filters)
+            #     out_strides.append(prev_stride)
+            #     models.append(model)
+
+            # elif block["type"] == "region":
+            #     loss = RegionLoss()
+            #     anchors = block["anchors"].split(",")
+            #     loss.anchors = [float(i) for i in anchors]
+            #     loss.num_classes = int(block["classes"])
+            #     loss.num_anchors = int(block["num"])
+            #     loss.anchor_step = len(loss.anchors) // loss.num_anchors
+            #     loss.object_scale = float(block["object_scale"])
+            #     loss.noobject_scale = float(block["noobject_scale"])
+            #     loss.class_scale = float(block["class_scale"])
+            #     loss.coord_scale = float(block["coord_scale"])
+            #     out_filters.append(prev_filters)
+            #     out_strides.append(prev_stride)
+            #     models.append(loss)
+
             elif block["type"] == "yolo":
                 yolo_layer = YoloLayer()
                 anchors = block["anchors"].split(",")
@@ -444,19 +468,20 @@ class Darknet(nn.Module):
                 )
                 yolo_layer.stride = prev_stride
                 yolo_layer.scale_x_y = float(block["scale_x_y"])
-                # yolo_layer.object_scale = float(block['object_scale'])
-                # yolo_layer.noobject_scale = float(block['noobject_scale'])
-                # yolo_layer.class_scale = float(block['class_scale'])
-                # yolo_layer.coord_scale = float(block['coord_scale'])
                 out_filters.append(prev_filters)
                 out_strides.append(prev_stride)
-                models.append(yolo_layer)
+                model.append(yolo_layer)
             else:
                 print("unknown type %s" % (block["type"]))
 
-        return models
+        return model
 
     def load_weights(self, weightfile):
+        """load weights from darknet file
+
+        Args:
+            weightfile (str): Path to .weights file
+        """
         fp = open(weightfile, "rb")
         header = np.fromfile(fp, count=5, dtype=np.int32)
         self.header = torch.from_numpy(header)

@@ -1,15 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-@Time          : 20/04/25 15:49
-@Author        : huguanghao
-@File          : demo.py
-@Noice         :
-@Modificattion :
-    @Author    :
-    @Time      :
-    @Detail    :
-"""
-
 # import sys
 # import time
 # from PIL import Image, ImageDraw
@@ -17,6 +5,8 @@
 from tool.utils import *
 from tool.torch_utils import *
 from tool.darknet2pytorch import Darknet
+from torchsummary import summary
+import torch
 import argparse
 
 """hyper parameters"""
@@ -28,7 +18,7 @@ def detect_cv2(cfgfile, weightfile, imgfile):
 
     m = Darknet(cfgfile)
     # m.print_network()
-    m.load_weights(weightfile)
+    # m.load_state_dict(torch.load(weightfile))
     exit(0)
 
     print("Loading weights from %s... Done!" % (weightfile))
