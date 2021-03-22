@@ -10,7 +10,7 @@ import itertools
 import struct  # get_image_size
 import imghdr  # get_image_size
 
-from tool import utils 
+from tool import utils
 
 
 def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
@@ -36,7 +36,7 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     uh = My - my
     cw = w1 + w2 - uw
     ch = h1 + h2 - uh
-    mask = ((cw <= 0) + (ch <= 0) > 0)
+    mask = (cw <= 0) + (ch <= 0) > 0
     area1 = w1 * h1
     area2 = w2 * h2
     carea = cw * ch
@@ -60,7 +60,7 @@ def get_region_boxes(boxes_and_confs):
     # confs: [batch, num1 + num2 + num3, num_classes]
     boxes = torch.cat(boxes_list, dim=1)
     confs = torch.cat(confs_list, dim=1)
-        
+
     return [boxes, confs]
 
 
@@ -72,7 +72,6 @@ def convert2cpu_long(gpu_matrix):
     return torch.LongTensor(gpu_matrix.size()).copy_(gpu_matrix)
 
 
-
 def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
     model.eval()
     t0 = time.time()
@@ -82,23 +81,22 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
     elif type(img) == np.ndarray and len(img.shape) == 4:
         img = torch.from_numpy(img.transpose(0, 3, 1, 2)).float().div(255.0)
     else:
-        print("unknow image type")
+        print("unknow image type or dims")
         exit(-1)
 
     if use_cuda:
         img = img.cuda()
     img = torch.autograd.Variable(img)
-    
+
     t1 = time.time()
 
     output = model(img)
 
     t2 = time.time()
 
-    print('-----------------------------------')
-    print('           Preprocess : %f' % (t1 - t0))
-    print('      Model Inference : %f' % (t2 - t1))
-    print('-----------------------------------')
+    print("-----------------------------------")
+    print("           Preprocess : %f" % (t1 - t0))
+    print("      Model Inference : %f" % (t2 - t1))
+    print("-----------------------------------")
 
     return utils.post_processing(img, conf_thresh, nms_thresh, output)
-

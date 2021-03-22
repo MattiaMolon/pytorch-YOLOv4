@@ -10,17 +10,15 @@ import torch
 import argparse
 
 """hyper parameters"""
-use_cuda = True
+use_cuda = False
 
 
 def detect_cv2(cfgfile, weightfile, imgfile):
     import cv2
 
     m = Darknet(cfgfile)
-    m.print_network()
-    # m.load_weights(weightfile)
-    exit(0)
-
+    # m.print_network()
+    m.load_weights(weightfile)
     print("Loading weights from %s... Done!" % (weightfile))
 
     if use_cuda:
@@ -61,14 +59,14 @@ def get_args():
     parser.add_argument(
         "-weightfile",
         type=str,
-        default="./checkpoints/yolov4.pth",
+        default="./checkpoints/yolov4.weights",
         help="path of trained model.",
         dest="weightfile",
     )
     parser.add_argument(
         "-imgfile",
         type=str,
-        default="./data/dog.jpg",
+        default="../data/KITTI/training/images/000001.png",
         help="path of your image file.",
         dest="imgfile",
     )
