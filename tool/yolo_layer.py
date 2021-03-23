@@ -182,7 +182,7 @@ def yolo_forward_dynamic(
     validation=False,
 ):
     # Output would be invalid if it does not satisfy this assert
-    # assert (output.size(1) == (5 + num_classes) * num_anchors)
+    # assert output.size(1) == (5 + num_classes) * num_anchors
 
     # print(output.size())
 
@@ -203,11 +203,14 @@ def yolo_forward_dynamic(
         begin = i * (5 + num_classes)
         end = (i + 1) * (5 + num_classes)
 
-        bxy_list.append(output[:, begin : begin + 2])
-        bwh_list.append(output[:, begin + 2 : begin + 4])
-        det_confs_list.append(output[:, begin + 4 : begin + 5])
-        cls_confs_list.append(output[:, begin + 5 : end])
+        bxy_list.append(output[:, begin : begin + 2, ...])
+        bwh_list.append(output[:, begin + 2 : begin + 4, ...])
+        det_confs_list.append(output[:, begin + 4 : begin + 5, ...])
+        cls_confs_list.append(output[:, begin + 5 : end, ...])
 
+    # fmt: off
+    import IPython ; IPython.embed()
+    # fmt: on
     # Shape: [batch, num_anchors * 2, H, W]
     bxy = torch.cat(bxy_list, dim=1)
     # Shape: [batch, num_anchors * 2, H, W]
