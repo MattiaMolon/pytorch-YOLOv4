@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from tool.region_loss import RegionLoss
 from tool.yolo_layer import YoloLayer
+from tool.yolo_BEV_layer import YoloBEVLayer
 from tool.config import *
 from tool.torch_utils import *
 
@@ -104,7 +105,7 @@ class EmptyModule(nn.Module):
 
 # support route shortcut and reorg
 class Darknet(nn.Module):
-    def __init__(self, cfgfile, inference=False):
+    def __init__(self, cfgfile, BEV=False, inference=False):
         super(Darknet, self).__init__()
 
         # what are we using the model for
@@ -116,19 +117,31 @@ class Darknet(nn.Module):
         self.width = int(self.blocks[0]["width"])
         self.height = int(self.blocks[0]["height"])
 
+        # define type of model
+        self.is_BEV = True
+
         # create model from blocks
-        self.model = self.create_network(self.blocks)  # merge conv, bn,leaky
+        self.model = self.create_network(self.blocks)  # merge conv, bn, leaky
         self.loss = self.model[len(self.model) - 1]
 
         # needed for weights
         self.header = torch.IntTensor([0, 0, 0, 0])
         self.seen = 0
 
-    def forward(self, x):
+    def forward(self, x: np.ndarray) -> torch.Tensor:
+        """forward pass for Yolov4_BEV
+
+        Args:
+            x (np.ndarray): batch of images
+
+        Returns:
+            torch.Tensor: bounding boxes prediction for the biggest feature map
+        """
+
         ind = -2
+        concat_output = False
         self.loss = None
         outputs = dict()
-        out_boxes = []
 
         for block in self.blocks:
             ind = ind + 1
@@ -185,15 +198,16 @@ class Darknet(nn.Module):
 
             elif block["type"] == "yolo":
                 boxes = self.model[ind](x)
-                out_boxes.append(boxes)
+                if not concat_output:
+                    out_boxes = boxes
+                    concat_output = True
+                else:
+                    out_boxes = torch.cat((out_boxes, boxes), 1)
 
             else:
                 print("unknown type %s" % (block["type"]))
 
-        if self.training:
-            return out_boxes
-        else:
-            return get_region_boxes(out_boxes)
+        return out_boxes
 
     def print_network(self):
         print_cfg(self.blocks)
@@ -330,22 +344,43 @@ class Darknet(nn.Module):
                 model.append(EmptyModule())
 
             elif block["type"] == "yolo":
-                yolo_layer = YoloLayer()
-                anchors = block["anchors"].split(",")
-                anchor_mask = block["mask"].split(",")
-                yolo_layer.anchor_mask = [int(i) for i in anchor_mask]
-                yolo_layer.anchors = [float(i) for i in anchors]
-                yolo_layer.num_classes = int(block["classes"])
-                self.num_classes = yolo_layer.num_classes
-                yolo_layer.num_anchors = int(block["num"])
-                yolo_layer.anchor_step = (
-                    len(yolo_layer.anchors) // yolo_layer.num_anchors
-                )
-                yolo_layer.stride = prev_stride
-                yolo_layer.scale_x_y = float(block["scale_x_y"])
-                out_filters.append(prev_filters)
-                out_strides.append(prev_stride)
-                model.append(yolo_layer)
+                if self.is_BEV:  # my BEV layer
+                    # TODO: go through this code and remove unneccessary parameters
+                    yolo_layer = YoloBEVLayer()
+                    anchors = block["anchors"].split(",")
+                    anchor_mask = block["mask"].split(",")
+                    yolo_layer.anchor_mask = [int(i) for i in anchor_mask]
+                    yolo_layer.anchors = [float(i) for i in anchors]
+                    yolo_layer.num_classes = int(block["classes"])
+                    self.num_classes = yolo_layer.num_classes
+                    yolo_layer.num_anchors = int(block["num"])
+                    yolo_layer.anchor_step = (
+                        len(yolo_layer.anchors) // yolo_layer.num_anchors
+                    )
+                    yolo_layer.stride = prev_stride
+                    yolo_layer.scale_x_y = float(block["scale_x_y"])
+                    out_filters.append(prev_filters)
+                    out_strides.append(prev_stride)
+                    model.append(yolo_layer)
+
+                else:  # Classic Yolo layer
+                    yolo_layer = YoloLayer()
+                    anchors = block["anchors"].split(",")
+                    anchor_mask = block["mask"].split(",")
+                    yolo_layer.anchor_mask = [int(i) for i in anchor_mask]
+                    yolo_layer.anchors = [float(i) for i in anchors]
+                    yolo_layer.num_classes = int(block["classes"])
+                    self.num_classes = yolo_layer.num_classes
+                    yolo_layer.num_anchors = int(block["num"])
+                    yolo_layer.anchor_step = (
+                        len(yolo_layer.anchors) // yolo_layer.num_anchors
+                    )
+                    yolo_layer.stride = prev_stride
+                    yolo_layer.scale_x_y = float(block["scale_x_y"])
+                    out_filters.append(prev_filters)
+                    out_strides.append(prev_stride)
+                    model.append(yolo_layer)
+
             else:
                 print("unknown type %s" % (block["type"]))
 

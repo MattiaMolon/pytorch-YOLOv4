@@ -84,11 +84,11 @@ def print_cfg(blocks):
                     kernel_size,
                     kernel_size,
                     stride,
-                    prev_width,
                     prev_height,
+                    prev_width,
                     prev_filters,
-                    width,
                     height,
+                    width,
                     filters,
                 )
             )
@@ -112,69 +112,11 @@ def print_cfg(blocks):
                     pool_size,
                     pool_size,
                     stride,
-                    prev_width,
                     prev_height,
-                    prev_filters,
-                    width,
-                    height,
-                    filters,
-                )
-            )
-            prev_width = width
-            prev_height = height
-            prev_filters = filters
-            out_widths.append(prev_width)
-            out_heights.append(prev_height)
-            out_filters.append(prev_filters)
-
-        elif block["type"] == "avgpool":
-            width = 1
-            height = 1
-            print(
-                "%5d %-6s                   %3d x %3d x%4d   ->  %3d"
-                % (ind, "avg", prev_width, prev_height, prev_filters, prev_filters)
-            )
-            prev_width = width
-            prev_height = height
-            prev_filters = filters
-            out_widths.append(prev_width)
-            out_heights.append(prev_height)
-            out_filters.append(prev_filters)
-
-        elif block["type"] == "softmax":
-            print(
-                "%5d %-6s                                    ->  %3d"
-                % (ind, "softmax", prev_filters)
-            )
-            out_widths.append(prev_width)
-            out_heights.append(prev_height)
-            out_filters.append(prev_filters)
-
-        elif block["type"] == "cost":
-            print(
-                "%5d %-6s                                     ->  %3d"
-                % (ind, "cost", prev_filters)
-            )
-            out_widths.append(prev_width)
-            out_heights.append(prev_height)
-            out_filters.append(prev_filters)
-
-        elif block["type"] == "reorg":
-            stride = int(block["stride"])
-            filters = stride * stride * prev_filters
-            width = prev_width // stride
-            height = prev_height // stride
-            print(
-                "%5d %-6s             / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d"
-                % (
-                    ind,
-                    "reorg",
-                    stride,
                     prev_width,
-                    prev_height,
                     prev_filters,
-                    width,
                     height,
+                    width,
                     filters,
                 )
             )
@@ -196,11 +138,11 @@ def print_cfg(blocks):
                     ind,
                     "upsample",
                     stride,
-                    prev_width,
                     prev_height,
+                    prev_width,
                     prev_filters,
-                    width,
                     height,
+                    width,
                     filters,
                 )
             )
@@ -264,7 +206,7 @@ def print_cfg(blocks):
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
 
-        elif block["type"] in ["region", "yolo"]:
+        elif block["type"] in ["yolo"]:
             print("%5d %-6s" % (ind, "detection"))
             out_widths.append(prev_width)
             out_heights.append(prev_height)
@@ -279,17 +221,6 @@ def print_cfg(blocks):
             prev_filters = out_filters[from_id]
             out_widths.append(prev_width)
             out_heights.append(prev_height)
-            out_filters.append(prev_filters)
-
-        elif block["type"] == "connected":
-            filters = int(block["output"])
-            print(
-                "%5d %-6s                            %d  ->  %3d"
-                % (ind, "connected", prev_filters, filters)
-            )
-            prev_filters = filters
-            out_widths.append(1)
-            out_heights.append(1)
             out_filters.append(prev_filters)
 
         else:
