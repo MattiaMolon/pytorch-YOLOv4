@@ -48,8 +48,7 @@ def detect_BEV(cfgfile, weightfile, imgfile):
         if i == 1:
             print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
 
-    # TODO
-    # plot_boxes_cv2(img, boxes[0], savename="predictions.jpg", class_names=class_names)
+    # TODO: plot boxes in BEV
 
 
 def get_args():

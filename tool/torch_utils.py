@@ -99,4 +99,7 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
     print("      Model Inference : %f" % (t2 - t1))
     print("-----------------------------------")
 
-    return utils.post_processing(img, conf_thresh, nms_thresh, output)
+    if not model.is_BEV:
+        return utils.post_processing(img, conf_thresh, nms_thresh, output)
+    else:
+        return output

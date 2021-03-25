@@ -80,18 +80,18 @@ class Upsample_expand(nn.Module):
         return x
 
 
-# class Upsample_interpolate(nn.Module):
-#     def __init__(self, stride):
-#         super(Upsample_interpolate, self).__init__()
-#         self.stride = stride
+class Upsample_interpolate(nn.Module):
+    def __init__(self, stride):
+        super(Upsample_interpolate, self).__init__()
+        self.stride = stride
 
-#     def forward(self, x):
-#         assert x.data.dim() == 4
+    def forward(self, x):
+        assert x.data.dim() == 4
 
-#         out = F.interpolate(
-#             x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode="nearest"
-#         )
-#         return out
+        out = F.interpolate(
+            x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode="nearest"
+        )
+        return out
 
 
 # for route and shortcut
@@ -114,8 +114,14 @@ class Darknet(nn.Module):
 
         # read cfg file and divide it into blocks
         self.blocks = parse_cfg(cfgfile)
+
+        # get net params
         self.width = int(self.blocks[0]["width"])
         self.height = int(self.blocks[0]["height"])
+        self.cell_depth = int(self.blocks[0]["cell_depth"])
+        self.cell_angle = float(self.blocks[0]["cell_angle"])
+        self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
+        self.num_anchors = int(self.blocks[0]["num"])
 
         # define type of model
         self.is_BEV = True
@@ -206,6 +212,45 @@ class Darknet(nn.Module):
 
             else:
                 print("unknown type %s" % (block["type"]))
+
+        # outboxes = [x on stride 8,
+        #             y on stride 8,
+        #             exp(w),
+        #             exp(l),
+        #             sin(rotation),
+        #             cos(rotation),
+        #             obj,
+        #             ... class confs,
+        #             ]
+        # transform out_boxes to BEV dimensions such that we can compare them with gt
+        # fmt: off
+        import IPython ; IPython.embed()
+        # fmt: on
+        return self.get_boxes_BEV(out_boxes)
+
+    def get_boxes_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
+        """Transform out_boxes from biggest feature map space into BEV space
+
+        Args:
+            out_boxes (torch.Tensor): concatenated output of yolo_BEV layers
+
+        Output:
+            bboxes in BEV space
+        """
+        # transform anchors dimensions in BEV space
+        self.anchors = [
+            (self.anchors[i], self.anchors[i + 1])
+            for i in range(0, len(self.anchors), 2)
+        ]
+        self.anchors = torch.FloatTensor(self.anchors)
+        self.anchors = self.anchors.repeat(
+            out_boxes.shape[1] // self.num_anchors, 1
+        ).unsqueeze(0)
+        out_boxes[..., 2:4] *= self.anchors
+
+        # transform anchors distance and angle into BEV space
+        out_boxes[..., 0] *= self.cell_angle  # row
+        out_boxes[..., 1] *= self.cell_depth  # column
 
         return out_boxes
 
@@ -347,16 +392,9 @@ class Darknet(nn.Module):
                 if self.is_BEV:  # my BEV layer
                     # TODO: go through this code and remove unneccessary parameters
                     yolo_layer = YoloBEVLayer()
-                    anchors = block["anchors"].split(",")
-                    anchor_mask = block["mask"].split(",")
-                    yolo_layer.anchor_mask = [int(i) for i in anchor_mask]
-                    yolo_layer.anchors = [float(i) for i in anchors]
                     yolo_layer.num_classes = int(block["classes"])
                     self.num_classes = yolo_layer.num_classes
-                    yolo_layer.num_anchors = int(block["num"])
-                    yolo_layer.anchor_step = (
-                        len(yolo_layer.anchors) // yolo_layer.num_anchors
-                    )
+                    yolo_layer.num_anchors = self.num_anchors
                     yolo_layer.stride = prev_stride
                     yolo_layer.scale_x_y = float(block["scale_x_y"])
                     out_filters.append(prev_filters)
