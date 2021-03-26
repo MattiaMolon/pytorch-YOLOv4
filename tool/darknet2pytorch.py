@@ -223,12 +223,9 @@ class Darknet(nn.Module):
         #             ... class confs,
         #             ]
         # transform out_boxes to BEV dimensions such that we can compare them with gt
-        # fmt: off
-        import IPython ; IPython.embed()
-        # fmt: on
-        return self.get_boxes_BEV(out_boxes)
+        return self.transform_boxes_to_BEV(out_boxes)
 
-    def get_boxes_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
+    def transform_boxes_to_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
         """Transform out_boxes from biggest feature map space into BEV space
 
         Args:
@@ -238,15 +235,16 @@ class Darknet(nn.Module):
             bboxes in BEV space
         """
         # transform anchors dimensions in BEV space
-        self.anchors = [
+        tmp_anchors = [
             (self.anchors[i], self.anchors[i + 1])
             for i in range(0, len(self.anchors), 2)
         ]
-        self.anchors = torch.FloatTensor(self.anchors)
-        self.anchors = self.anchors.repeat(
+        tmp_anchors = torch.FloatTensor(tmp_anchors)
+        tmp_anchors = tmp_anchors.repeat(
             out_boxes.shape[1] // self.num_anchors, 1
         ).unsqueeze(0)
-        out_boxes[..., 2:4] *= self.anchors
+        out_boxes[..., 2:4] *= tmp_anchors
+        del tmp_anchors
 
         # transform anchors distance and angle into BEV space
         out_boxes[..., 0] *= self.cell_angle  # row

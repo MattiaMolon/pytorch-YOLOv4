@@ -2,15 +2,19 @@ import sys
 import os
 import time
 import math
+from typing import Any
+from warnings import WarningMessage
 import numpy as np
 
 import itertools
 import struct  # get_image_size
 import imghdr  # get_image_size
+import torch
+from torch._C import import_ir_module_from_buffer
 
 
 def sigmoid(x):
-    return 1.0 / (np.exp(-x) + 1.)
+    return 1.0 / (np.exp(-x) + 1.0)
 
 
 def softmax(x):
@@ -20,7 +24,7 @@ def softmax(x):
 
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
-    
+
     # print('iou box1:', box1)
     # print('iou box2:', box2)
 
@@ -58,6 +62,69 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     return carea / uarea
 
 
+def my_IoU(
+    box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU"
+) -> torch.Tensor:
+    """Compute IoU between box1 and all the boxes in other.
+    Type of IoU to run is specified with the type parameter.
+
+    Args:
+        box1 (torch.Tensor): First argument for IoU
+        other (torch.Tensor): All boxes on which the IoU must be computed
+        iou_type (str): type of IoU to run. Implemented: ["IoU", "rgIoU"]. Default: "IoU"
+
+    Returns:
+        torch.Tensor: list of rgIoU scores
+    """
+    # (x1,y1)----
+    #   |        |
+    #   |        |
+    #   ------(x2,y2)
+
+    box1_ = box1[:, :4]
+    other_ = other[:, :4]
+
+    # get coords for box1_
+    box1_[:, 0] = box1[:, 0] - box1[:, 2] / 2
+    box1_[:, 1] = box1[:, 0] + box1[:, 3] / 2
+    box1_[:, 2] = box1[:, 1] + box1[:, 2] / 2
+    box1_[:, 3] = box1[:, 1] - box1[:, 3] / 2
+
+    # get coords for all others_
+    other_[:, 0] = other[:, 0] - other[:, 2] / 2
+    other_[:, 1] = other[:, 0] + other[:, 3] / 2
+    other_[:, 2] = other[:, 1] + other[:, 2] / 2
+    other_[:, 3] = other[:, 1] - other[:, 3] / 2
+
+    # intersection coords
+    inter_rect_x1 = torch.max(box1_[:, 0], other_[:, 0])
+    inter_rect_y1 = torch.min(box1_[:, 1], other_[:, 1])
+    inter_rect_x2 = torch.min(box1_[:, 2], other_[:, 2])
+    inter_rect_y2 = torch.max(box1_[:, 3], other_[:, 3])
+
+    if iou_type == "IoU":
+        # compute areas
+        inter_area = torch.clamp(
+            inter_rect_x2 - inter_rect_x1 + 1, min=0
+        ) * torch.clamp(inter_rect_y1 - inter_rect_y2 + 1, min=0)
+        box1_area = (box1_[:, 2] - box1_[:, 0] + 1) * (box1_[:, 1] - box1_[:, 3] + 1)
+        other_area = (other_[:, 2] - other_[:, 0] + 1) * (
+            other_[:, 1] - other_[:, 3] + 1
+        )
+
+        del box1_, other_
+
+        return inter_area / (box1_area + other_area - inter_area)
+
+    elif iou_type == "rgIoU":
+        print("rgIoU metric not implemented yet")
+        exit(1)
+
+    else:
+        print("IoU metric not recognized")
+        exit(1)
+
+
 def nms_cpu(boxes, confs, nms_thresh=0.5, min_mode=False):
     # print(boxes.shape)
     x1 = boxes[:, 0]
@@ -91,15 +158,18 @@ def nms_cpu(boxes, confs, nms_thresh=0.5, min_mode=False):
 
         inds = np.where(over <= nms_thresh)[0]
         order = order[inds + 1]
-    
-    return np.array(keep)
 
+    return np.array(keep)
 
 
 def plot_boxes_cv2(img, boxes, savename=None, class_names=None, color=None):
     import cv2
+
     img = np.copy(img)
-    colors = np.array([[1, 0, 1], [0, 0, 1], [0, 1, 1], [0, 1, 0], [1, 1, 0], [1, 0, 0]], dtype=np.float32)
+    colors = np.array(
+        [[1, 0, 1], [0, 0, 1], [0, 1, 1], [0, 1, 0], [1, 1, 0], [1, 0, 0]],
+        dtype=np.float32,
+    )
 
     def get_color(c, x, max_val):
         ratio = float(x) / max_val * 5
@@ -125,7 +195,7 @@ def plot_boxes_cv2(img, boxes, savename=None, class_names=None, color=None):
         if len(box) >= 7 and class_names:
             cls_conf = box[5]
             cls_id = box[6]
-            print('%s: %f' % (class_names[cls_id], cls_conf))
+            print("%s: %f" % (class_names[cls_id], cls_conf))
             classes = len(class_names)
             offset = cls_id * 123457 % classes
             red = get_color(2, offset, classes)
@@ -133,7 +203,15 @@ def plot_boxes_cv2(img, boxes, savename=None, class_names=None, color=None):
             blue = get_color(0, offset, classes)
             if color is None:
                 rgb = (red, green, blue)
-            img = cv2.putText(img, class_names[cls_id], (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 1.2, rgb, 1)
+            img = cv2.putText(
+                img,
+                class_names[cls_id],
+                (x1, y1),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.2,
+                rgb,
+                1,
+            )
         img = cv2.rectangle(img, (x1, y1), (x2, y2), rgb, 1)
     if savename:
         print("save plot results to %s" % savename)
@@ -154,13 +232,12 @@ def read_truths(lab_path):
 
 def load_class_names(namesfile):
     class_names = []
-    with open(namesfile, 'r') as fp:
+    with open(namesfile, "r") as fp:
         lines = fp.readlines()
     for line in lines:
         line = line.rstrip()
         class_names.append(line)
     return class_names
-
 
 
 def post_processing(img, conf_thresh, nms_thresh, output):
@@ -178,7 +255,7 @@ def post_processing(img, conf_thresh, nms_thresh, output):
 
     t1 = time.time()
 
-    if type(box_array).__name__ != 'ndarray':
+    if type(box_array).__name__ != "ndarray":
         box_array = box_array.cpu().detach().numpy()
         confs = confs.cpu().detach().numpy()
 
@@ -195,7 +272,7 @@ def post_processing(img, conf_thresh, nms_thresh, output):
 
     bboxes_batch = []
     for i in range(box_array.shape[0]):
-       
+
         argwhere = max_conf[i] > conf_thresh
         l_box_array = box_array[i, argwhere, :]
         l_max_conf = max_conf[i, argwhere]
@@ -211,23 +288,128 @@ def post_processing(img, conf_thresh, nms_thresh, output):
             ll_max_id = l_max_id[cls_argwhere]
 
             keep = nms_cpu(ll_box_array, ll_max_conf, nms_thresh)
-            
-            if (keep.size > 0):
+
+            if keep.size > 0:
                 ll_box_array = ll_box_array[keep, :]
                 ll_max_conf = ll_max_conf[keep]
                 ll_max_id = ll_max_id[keep]
 
                 for k in range(ll_box_array.shape[0]):
-                    bboxes.append([ll_box_array[k, 0], ll_box_array[k, 1], ll_box_array[k, 2], ll_box_array[k, 3], ll_max_conf[k], ll_max_conf[k], ll_max_id[k]])
-        
+                    bboxes.append(
+                        [
+                            ll_box_array[k, 0],
+                            ll_box_array[k, 1],
+                            ll_box_array[k, 2],
+                            ll_box_array[k, 3],
+                            ll_max_conf[k],
+                            ll_max_conf[k],
+                            ll_max_id[k],
+                        ]
+                    )
+
         bboxes_batch.append(bboxes)
 
     t3 = time.time()
 
-    print('-----------------------------------')
-    print('       max and argmax : %f' % (t2 - t1))
-    print('                  nms : %f' % (t3 - t2))
-    print('Post processing total : %f' % (t3 - t1))
-    print('-----------------------------------')
-    
+    print("-----------------------------------")
+    print("       max and argmax : %f" % (t2 - t1))
+    print("                  nms : %f" % (t3 - t2))
+    print("Post processing total : %f" % (t3 - t1))
+    print("-----------------------------------")
+
     return bboxes_batch
+
+
+def post_processing_BEV(
+    prediction: torch.Tensor, obj_thresh: float = 0.3, nms_thresh: float = 0.7
+) -> Any:
+    """Aplly nms with rotation generalized IoU (rgIoU)
+
+    Args:
+        prediction (torch.Tensor): output of yolov4_BEV
+        conf_thresh (float): confidence trashold for detection. Default = 0.3
+        nms_thresh (float): nms treshold for rgIoU. Default = 0.7
+
+    Returns:
+        Any : filtered bboxes in BEV space for each image in batch.
+              Format= [num_bboxes_batch * [batch_id, x,y,w,h,sin,cos,obj,conf,class]]
+              Returns None if no detections have been made
+    """
+
+    # filter for obj_treshold
+    obj_mask = (prediction[..., 6] > obj_thresh).float().unsqueeze(2)
+    prediction *= obj_mask
+
+    # loop the batch samples
+    output_final = None
+    for batch_id, sample_pred in enumerate(prediction[:]):
+
+        # instead of using all the classes, I substitute with max_conf and max_conf_idx
+        max_conf, max_conf_idx = torch.max(sample_pred[:, 7:], 1)
+        max_conf = max_conf.float().unsqueeze(1)
+        max_conf_idx = max_conf_idx.float().unsqueeze(1)
+        sample_pred = torch.cat((sample_pred[:, :7], max_conf, max_conf_idx), dim=1)
+
+        # remove non zeros tuples over obj_thresholding
+        non_zero_mask = torch.nonzero(sample_pred[:, 6])
+        try:  # could give an error if image has no detections
+            sample_pred = sample_pred[non_zero_mask.squeeze(1)]
+        except:
+            continue
+
+        # loop over the classes
+        cls_pred = torch.unique(sample_pred[:, -1])
+        for cls_id in cls_pred:
+
+            # remove bboxes that did not detect cls_id
+            sample_pred_cls = sample_pred * (
+                sample_pred[:, -1] == cls_id
+            ).float().unsqueeze(1)
+            non_zero_mask = torch.nonzero(sample_pred_cls[:, 0]).squeeze()
+            sample_pred_cls = sample_pred_cls[non_zero_mask]
+
+            # order bboxes by confidence score for NMS
+            conf_sort_idx = torch.argsort(sample_pred_cls[:, -3], descending=True)
+            sample_pred_cls = sample_pred_cls[conf_sort_idx]
+
+            # NMS
+            for i in range(sample_pred_cls.size(0)):
+                try:
+                    iou_score = my_IoU(
+                        sample_pred_cls[i].unsqueeze(0),
+                        sample_pred_cls[i + 1 :],
+                        iou_type="IoU",
+                    )
+                except ValueError as e_val:
+                    print(
+                        "Value Error excpetion triggered while calling rgIoU method during NMS\n"
+                        + "Exception:",
+                        e_val,
+                    )
+                    break
+                except IndexError as e_id:
+                    print(
+                        "Index Error excpetion triggered while calling rgIoU method during NMS\n"
+                        + "Exception:",
+                        e_id,
+                    )
+                    break
+
+                # remove tuples with less than NMS thrashold of iou_score
+                nms_mask = (iou_score < nms_thresh).float().unsqueeze(1)
+                sample_pred_cls[i + 1 :] = sample_pred_cls[i + 1 :] * nms_mask
+                nms_mask_id = torch.nonzero(sample_pred_cls[:, 0]).squeeze()
+                sample_pred_cls = sample_pred_cls[nms_mask_id]
+
+            # concatenate to output_final
+            batch_id_tensor = (
+                torch.Tensor([batch_id]).repeat(sample_pred_cls.size(0)).unsqueeze(1)
+            )
+            tmp_out = torch.cat((batch_id_tensor, sample_pred_cls), dim=1)
+
+            if output_final is None:
+                output_final = tmp_out
+            else:
+                output_final = torch.cat((output_final, tmp_out), dim=0)
+
+    return output_final

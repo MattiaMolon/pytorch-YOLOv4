@@ -84,11 +84,11 @@ def print_cfg(blocks):
                     kernel_size,
                     kernel_size,
                     stride,
-                    prev_height,
                     prev_width,
+                    prev_height,
                     prev_filters,
-                    height,
                     width,
+                    height,
                     filters,
                 )
             )
@@ -112,11 +112,11 @@ def print_cfg(blocks):
                     pool_size,
                     pool_size,
                     stride,
-                    prev_height,
                     prev_width,
+                    prev_height,
                     prev_filters,
-                    height,
                     width,
+                    height,
                     filters,
                 )
             )
@@ -138,11 +138,11 @@ def print_cfg(blocks):
                     ind,
                     "upsample",
                     stride,
-                    prev_height,
                     prev_width,
+                    prev_height,
                     prev_filters,
-                    height,
                     width,
+                    height,
                     filters,
                 )
             )

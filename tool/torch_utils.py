@@ -72,10 +72,11 @@ def convert2cpu_long(gpu_matrix):
     return torch.LongTensor(gpu_matrix.size()).copy_(gpu_matrix)
 
 
-def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
+def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1):
     model.eval()
     t0 = time.time()
 
+    # transpose channels to fit the model
     if type(img) == np.ndarray and len(img.shape) == 3:  # cv2 image
         img = torch.from_numpy(img.transpose(2, 0, 1)).float().div(255.0).unsqueeze(0)
     elif type(img) == np.ndarray and len(img.shape) == 4:
@@ -84,6 +85,7 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
         print("unknow image type or dims")
         exit(-1)
 
+    # push to GPU
     if use_cuda:
         img = img.cuda()
     img = torch.autograd.Variable(img)
@@ -100,6 +102,6 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
     print("-----------------------------------")
 
     if not model.is_BEV:
-        return utils.post_processing(img, conf_thresh, nms_thresh, output)
+        return utils.post_processing(img, obj_thresh, nms_thresh, output)
     else:
-        return output
+        return utils.post_processing_BEV(output, obj_thresh, nms_thresh)

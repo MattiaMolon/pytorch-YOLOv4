@@ -2,6 +2,7 @@
 # import time
 # from PIL import Image, ImageDraw
 # from models.tiny_yolo import TinyYoloNet
+from numpy.lib.financial import ipmt
 from tool.utils import *
 from tool.torch_utils import *
 from tool.darknet2pytorch import Darknet
@@ -23,7 +24,7 @@ def detect_BEV(cfgfile, weightfile, imgfile):
 
     # load model
     m = Darknet(cfgfile, BEV=True)
-    # m.print_network()
+    m.print_network()
     # m.load_weights(weightfile)
     # print("Loading weights from %s... Done!" % (weightfile))
 
@@ -40,14 +41,19 @@ def detect_BEV(cfgfile, weightfile, imgfile):
     sized = cv2.resize(img, (m.width, m.height))
     sized = cv2.cvtColor(sized, cv2.COLOR_BGR2RGB)
 
-    # run inference
-    for i in range(2):
-        start = time.time()
-        boxes = do_detect(m, sized, 0.4, 0.6, use_cuda)
-        finish = time.time()
-        if i == 1:
-            print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
+    # create batch
+    sized = np.expand_dims(sized, 0)
+    sized = np.concatenate((sized, sized), 0)
 
+    # run inference
+    start = time.time()
+    boxes = do_detect(m, sized, 0.4, 0.6, use_cuda)
+    finish = time.time()
+    print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
+
+    # fmt: off
+    import IPython ; IPython.embed()
+    # fmt: on
     # TODO: plot boxes in BEV
 
 
