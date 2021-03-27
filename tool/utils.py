@@ -12,6 +12,20 @@ import imghdr  # get_image_size
 import torch
 from torch._C import import_ir_module_from_buffer
 
+from shapely.affinity import rotate, translate
+from shapely.geometry import Polygon
+
+
+def rect_polygon(x, y, width, height, angle):
+    """Return a shapely Polygon describing the rectangle with centre at
+    (x, y) and the given width and height, rotated by angle quarter-turns.
+    code from: https://codereview.stackexchange.com/questions/204017/intersection-over-union-for-rotated-rectangles
+    """
+    w = width / 2
+    h = height / 2
+    p = Polygon([(-w, -h), (w, -h), (w, h), (-w, h)])
+    return translate(rotate(p, angle), x, y)
+
 
 def sigmoid(x):
     return 1.0 / (np.exp(-x) + 1.0)
@@ -62,63 +76,110 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     return carea / uarea
 
 
-def my_IoU(
-    box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU"
-) -> torch.Tensor:
+def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> torch.Tensor:
     """Compute IoU between box1 and all the boxes in other.
     Type of IoU to run is specified with the type parameter.
 
     Args:
         box1 (torch.Tensor): First argument for IoU
         other (torch.Tensor): All boxes on which the IoU must be computed
-        iou_type (str): type of IoU to run. Implemented: ["IoU", "rgIoU"]. Default: "IoU"
+        iou_type (str): type of IoU to run. Implemented: ["IoU", "gIoU", "rIoU", "rgIoU"]. Default: "IoU"
 
     Returns:
         torch.Tensor: list of rgIoU scores
     """
-    # (x1,y1)----
-    #   |        |
-    #   |        |
-    #   ------(x2,y2)
 
-    box1_ = box1[:, :4]
-    other_ = other[:, :4]
+    if iou_type in ["IoU", "gIoU"]:
+        # (x1,y1)----
+        #   |        |
+        #   |        |
+        #   ------(x2,y2)
 
-    # get coords for box1_
-    box1_[:, 0] = box1[:, 0] - box1[:, 2] / 2
-    box1_[:, 1] = box1[:, 0] + box1[:, 3] / 2
-    box1_[:, 2] = box1[:, 1] + box1[:, 2] / 2
-    box1_[:, 3] = box1[:, 1] - box1[:, 3] / 2
+        box1_ = box1[:, :4]
+        other_ = other[:, :4]
 
-    # get coords for all others_
-    other_[:, 0] = other[:, 0] - other[:, 2] / 2
-    other_[:, 1] = other[:, 0] + other[:, 3] / 2
-    other_[:, 2] = other[:, 1] + other[:, 2] / 2
-    other_[:, 3] = other[:, 1] - other[:, 3] / 2
+        # get coords for box1_
+        box1_[:, 0] = box1[:, 0] - box1[:, 2] / 2
+        box1_[:, 1] = box1[:, 0] + box1[:, 3] / 2
+        box1_[:, 2] = box1[:, 1] + box1[:, 2] / 2
+        box1_[:, 3] = box1[:, 1] - box1[:, 3] / 2
 
-    # intersection coords
-    inter_rect_x1 = torch.max(box1_[:, 0], other_[:, 0])
-    inter_rect_y1 = torch.min(box1_[:, 1], other_[:, 1])
-    inter_rect_x2 = torch.min(box1_[:, 2], other_[:, 2])
-    inter_rect_y2 = torch.max(box1_[:, 3], other_[:, 3])
+        # get coords for all others_
+        other_[:, 0] = other[:, 0] - other[:, 2] / 2
+        other_[:, 1] = other[:, 0] + other[:, 3] / 2
+        other_[:, 2] = other[:, 1] + other[:, 2] / 2
+        other_[:, 3] = other[:, 1] - other[:, 3] / 2
 
-    if iou_type == "IoU":
+        # intersection coords
+        inter_rect_x1 = torch.max(box1_[:, 0], other_[:, 0])
+        inter_rect_y1 = torch.min(box1_[:, 1], other_[:, 1])
+        inter_rect_x2 = torch.min(box1_[:, 2], other_[:, 2])
+        inter_rect_y2 = torch.max(box1_[:, 3], other_[:, 3])
+
         # compute areas
-        inter_area = torch.clamp(
-            inter_rect_x2 - inter_rect_x1 + 1, min=0
-        ) * torch.clamp(inter_rect_y1 - inter_rect_y2 + 1, min=0)
         box1_area = (box1_[:, 2] - box1_[:, 0] + 1) * (box1_[:, 1] - box1_[:, 3] + 1)
-        other_area = (other_[:, 2] - other_[:, 0] + 1) * (
-            other_[:, 1] - other_[:, 3] + 1
+        other_area = (other_[:, 2] - other_[:, 0] + 1) * (other_[:, 1] - other_[:, 3] + 1)
+        inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(
+            inter_rect_y1 - inter_rect_y2 + 1, min=0
         )
+        union_area = box1_area + other_area - inter_area
 
-        del box1_, other_
+        iou = inter_area / union_area
+        if iou_type == "IoU":
+            del box1_, other_
+            return iou
 
-        return inter_area / (box1_area + other_area - inter_area)
+        elif iou_type == "gIoU":
+            # compute enclosed area
+            enclos_rect_x1 = torch.min(box1_[:, 0], other_[:, 0])
+            enclos_rect_y1 = torch.max(box1_[:, 1], other_[:, 1])
+            enclos_rect_x2 = torch.max(box1_[:, 2], other_[:, 2])
+            enclos_rect_y2 = torch.min(box1_[:, 3], other_[:, 3])
+            area_c = (enclos_rect_x2 - enclos_rect_x1 + 1) * (enclos_rect_y1 - enclos_rect_y2 + 1)
 
-    elif iou_type == "rgIoU":
-        print("rgIoU metric not implemented yet")
-        exit(1)
+            del box1_, other_
+            return iou - (area_c - union_area) / area_c
+
+    elif iou_type in ["rIoU", "rgIoU"]:
+        box1_ = box1[:, :5]
+        other_ = other[:, :5]
+
+        # angle defined as torch.atan2(x, y) -> torch.atan2(cos,sin)
+        box1_[:, 4] = torch.atan2(box1[:, 4], box1[:, 5])
+        other_[:, 4] = torch.atan2(other[:, 4], other[:, 5])
+
+        # transform boxes into polygons
+        box1_ = [rect_polygon(*r) for r in box1_]
+        other_ = [rect_polygon(*r) for r in other_]
+
+        # compute areas
+        box1_area = np.array([p.area for p in box1_])
+        other_area = np.array([p.area for p in other_])
+        inter_area = np.array([p.intersection(box1_[0]).area for p in other_])
+        union_area = box1_area + other_area - inter_area
+
+        iou = inter_area / union_area
+        if iou_type == "rIoU":
+            return torch.from_numpy(iou)
+
+        elif iou_type == "rgIoU":
+
+            # max and min of all xy coords
+            other_coords = np.array([p.exterior.coords.xy for p in other_])
+            box1_coords = np.array([p.exterior.coords.xy for p in box1_])
+            other_max_xy = other_coords.max(2)
+            other_min_xy = other_coords.min(2)
+            box1_max_xy = box1_coords.max(2)
+            box1_min_xy = box1_coords.min(2)
+
+            # compute enclosed area
+            enclos_rect_x1 = np.min(box1_min_xy[:, 0], other_min_xy[:, 0])
+            enclos_rect_y1 = np.max(box1_max_xy[:, 1], other_max_xy[:, 1])
+            enclos_rect_x2 = np.max(box1_max_xy[:, 0], other_max_xy[:, 0])
+            enclos_rect_y2 = np.min(box1_min_xy[:, 1], other_min_xy[:, 1])
+            area_c = (enclos_rect_x2 - enclos_rect_x1 + 1) * (enclos_rect_y1 - enclos_rect_y2 + 1)
+
+            return iou - (area_c - union_area) / area_c
 
     else:
         print("IoU metric not recognized")
@@ -320,9 +381,7 @@ def post_processing(img, conf_thresh, nms_thresh, output):
     return bboxes_batch
 
 
-def post_processing_BEV(
-    prediction: torch.Tensor, obj_thresh: float = 0.3, nms_thresh: float = 0.7
-) -> Any:
+def post_processing_BEV(prediction: torch.Tensor, obj_thresh: float = 0.3, nms_thresh: float = 0.6) -> Any:
     """Aplly nms with rotation generalized IoU (rgIoU)
 
     Args:
@@ -362,9 +421,7 @@ def post_processing_BEV(
         for cls_id in cls_pred:
 
             # remove bboxes that did not detect cls_id
-            sample_pred_cls = sample_pred * (
-                sample_pred[:, -1] == cls_id
-            ).float().unsqueeze(1)
+            sample_pred_cls = sample_pred * (sample_pred[:, -1] == cls_id).float().unsqueeze(1)
             non_zero_mask = torch.nonzero(sample_pred_cls[:, 0]).squeeze()
             sample_pred_cls = sample_pred_cls[non_zero_mask]
 
@@ -374,37 +431,28 @@ def post_processing_BEV(
 
             # NMS
             for i in range(sample_pred_cls.size(0)):
+                print(sample_pred_cls.size(0))
                 try:
                     iou_score = my_IoU(
                         sample_pred_cls[i].unsqueeze(0),
                         sample_pred_cls[i + 1 :],
-                        iou_type="IoU",
+                        iou_type="rIoU",
                     )
-                except ValueError as e_val:
-                    print(
-                        "Value Error excpetion triggered while calling rgIoU method during NMS\n"
-                        + "Exception:",
-                        e_val,
-                    )
+                # exceptions when we try to call the function on an index
+                # that has been deleted in a previous step
+                except ValueError:
                     break
-                except IndexError as e_id:
-                    print(
-                        "Index Error excpetion triggered while calling rgIoU method during NMS\n"
-                        + "Exception:",
-                        e_id,
-                    )
+                except IndexError:
                     break
 
-                # remove tuples with less than NMS thrashold of iou_score
+                # remove tuples with less than NMS threshold of iou_score
                 nms_mask = (iou_score < nms_thresh).float().unsqueeze(1)
                 sample_pred_cls[i + 1 :] = sample_pred_cls[i + 1 :] * nms_mask
                 nms_mask_id = torch.nonzero(sample_pred_cls[:, 0]).squeeze()
                 sample_pred_cls = sample_pred_cls[nms_mask_id]
 
             # concatenate to output_final
-            batch_id_tensor = (
-                torch.Tensor([batch_id]).repeat(sample_pred_cls.size(0)).unsqueeze(1)
-            )
+            batch_id_tensor = torch.Tensor([batch_id]).repeat(sample_pred_cls.size(0)).unsqueeze(1)
             tmp_out = torch.cat((batch_id_tensor, sample_pred_cls), dim=1)
 
             if output_final is None:

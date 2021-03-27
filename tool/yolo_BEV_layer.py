@@ -32,13 +32,9 @@ def yolo_BEV_forward(
     bbox_attrib = 7 + num_classes  # dx,dy,dw,dh,sin,cos,obj + classes
 
     # transform prediction to shape[batch_size, num_anchors*W*H, bbox_attrib]
-    prediction = prediction.view(
-        batch_size, bbox_attrib * num_anchors, grid_size[0] * grid_size[1]
-    )
+    prediction = prediction.view(batch_size, bbox_attrib * num_anchors, grid_size[0] * grid_size[1])
     prediction = prediction.transpose(1, 2).contiguous()
-    prediction = prediction.view(
-        batch_size, grid_size[0] * grid_size[1] * num_anchors, bbox_attrib
-    )
+    prediction = prediction.view(batch_size, grid_size[0] * grid_size[1] * num_anchors, bbox_attrib)
 
     # first 2 elements: bxy = sigm(txy) + Cxy
     prediction[..., :2] = torch.sigmoid(prediction[..., :2])
@@ -49,18 +45,13 @@ def yolo_BEV_forward(
     x_offset = torch.FloatTensor(a).view(-1, 1)
     y_offset = torch.FloatTensor(b).view(-1, 1)
 
-    x_y_offset = (
-        torch.cat((x_offset, y_offset), 1)
-        .repeat(1, num_anchors)
-        .view(-1, 2)
-        .unsqueeze(0)
-    )
+    x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors).view(-1, 2).unsqueeze(0)
     prediction[..., :2] += x_y_offset
 
     # elements 3-4: bwl = exp(twl)*pwl  -> pwl is applied in the forward pass
     prediction[..., 2:4] = torch.exp(prediction[..., 2:4])
 
-    # elements 4-5: sin/cos = tanh(tsin/tcos)
+    # elements 4-5: cos(angle) and sin(angle)
     prediction[..., 4:6] = torch.tanh(prediction[..., 4:5])
 
     # element 6: obj = sigm(tobj)
@@ -104,7 +95,7 @@ class YoloBEVLayer(nn.Module):
     def forward(self, output, target=None):
         if self.training:
             print("training not implemented yet")
-            exit(0)
             return output
 
+        print("WARNING: all feature maps are rescaled to stride 8")
         return yolo_BEV_forward(output, self.stride, self.num_anchors, self.num_classes)

@@ -34,17 +34,13 @@ class MaxPoolDark(nn.Module):
         p : padding = k//2
         """
         p = self.size // 2
-        if ((x.shape[2] - 1) // self.stride) != (
-            (x.shape[2] + 2 * p - self.size) // self.stride
-        ):
+        if ((x.shape[2] - 1) // self.stride) != ((x.shape[2] + 2 * p - self.size) // self.stride):
             padding1 = (self.size - 1) // 2
             padding2 = padding1 + 1
         else:
             padding1 = (self.size - 1) // 2
             padding2 = padding1
-        if ((x.shape[3] - 1) // self.stride) != (
-            (x.shape[3] + 2 * p - self.size) // self.stride
-        ):
+        if ((x.shape[3] - 1) // self.stride) != ((x.shape[3] + 2 * p - self.size) // self.stride):
             padding3 = (self.size - 1) // 2
             padding4 = padding3 + 1
         else:
@@ -68,13 +64,9 @@ class Upsample_expand(nn.Module):
 
         x = (
             x.view(x.size(0), x.size(1), x.size(2), 1, x.size(3), 1)
-            .expand(
-                x.size(0), x.size(1), x.size(2), self.stride, x.size(3), self.stride
-            )
+            .expand(x.size(0), x.size(1), x.size(2), self.stride, x.size(3), self.stride)
             .contiguous()
-            .view(
-                x.size(0), x.size(1), x.size(2) * self.stride, x.size(3) * self.stride
-            )
+            .view(x.size(0), x.size(1), x.size(2) * self.stride, x.size(3) * self.stride)
         )
 
         return x
@@ -88,9 +80,7 @@ class Upsample_interpolate(nn.Module):
     def forward(self, x):
         assert x.data.dim() == 4
 
-        out = F.interpolate(
-            x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode="nearest"
-        )
+        out = F.interpolate(x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode="nearest")
         return out
 
 
@@ -148,6 +138,7 @@ class Darknet(nn.Module):
         concat_output = False
         self.loss = None
         outputs = dict()
+        out_boxes = []
 
         for block in self.blocks:
             ind = ind + 1
@@ -170,9 +161,7 @@ class Darknet(nn.Module):
                         groups = int(block["groups"])
                         group_id = int(block["group_id"])
                         _, b, _, _ = outputs[layers[0]].shape
-                        x = outputs[layers[0]][
-                            :, b // groups * group_id : b // groups * (group_id + 1)
-                        ]
+                        x = outputs[layers[0]][:, b // groups * group_id : b // groups * (group_id + 1)]
                         outputs[ind] = x
                 elif len(layers) == 2:
                     x1 = outputs[layers[0]]
@@ -204,26 +193,35 @@ class Darknet(nn.Module):
 
             elif block["type"] == "yolo":
                 boxes = self.model[ind](x)
-                if not concat_output:
-                    out_boxes = boxes
-                    concat_output = True
+                if self.training:
+                    out_boxes.append(boxes)
                 else:
-                    out_boxes = torch.cat((out_boxes, boxes), 1)
+                    if not concat_output:
+                        out_boxes = boxes
+                        concat_output = True
+                    else:
+                        out_boxes = torch.cat((out_boxes, boxes), 1)
 
             else:
                 print("unknown type %s" % (block["type"]))
 
-        # outboxes = [x on stride 8,
-        #             y on stride 8,
-        #             exp(w),
-        #             exp(l),
-        #             sin(rotation),
-        #             cos(rotation),
-        #             obj,
-        #             ... class confs,
-        #             ]
-        # transform out_boxes to BEV dimensions such that we can compare them with gt
-        return self.transform_boxes_to_BEV(out_boxes)
+        if self.training:
+            # out_boxes = [predictions_stride_8,
+            #              predictions_stride_16,
+            #              predictions_stride_32]
+            return out_boxes
+        else:
+            # out_boxes = [x on stride 8,
+            #             y on stride 8,
+            #             exp(w),
+            #             exp(l),
+            #             sin(rotation),
+            #             cos(rotation),
+            #             obj,
+            #             ... class confs,
+            #             ]
+            # transform out_boxes to BEV dimensions such that we can compare them with gt
+            return self.transform_boxes_to_BEV(out_boxes)
 
     def transform_boxes_to_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
         """Transform out_boxes from biggest feature map space into BEV space
@@ -235,14 +233,9 @@ class Darknet(nn.Module):
             bboxes in BEV space
         """
         # transform anchors dimensions in BEV space
-        tmp_anchors = [
-            (self.anchors[i], self.anchors[i + 1])
-            for i in range(0, len(self.anchors), 2)
-        ]
+        tmp_anchors = [(self.anchors[i], self.anchors[i + 1]) for i in range(0, len(self.anchors), 2)]
         tmp_anchors = torch.FloatTensor(tmp_anchors)
-        tmp_anchors = tmp_anchors.repeat(
-            out_boxes.shape[1] // self.num_anchors, 1
-        ).unsqueeze(0)
+        tmp_anchors = tmp_anchors.repeat(out_boxes.shape[1] // self.num_anchors, 1).unsqueeze(0)
         out_boxes[..., 2:4] *= tmp_anchors
         del tmp_anchors
 
@@ -276,9 +269,7 @@ class Darknet(nn.Module):
                 kernel_size = int(block["size"])
                 stride = int(block["stride"])
                 is_pad = int(block["pad"])
-                pad = (
-                    (kernel_size - 1) // 2 if is_pad else 0
-                )  # padding is defined as size/2 in yolo wiki
+                pad = (kernel_size - 1) // 2 if is_pad else 0  # padding is defined as size/2 in yolo wiki
                 activation = block["activation"]
 
                 # add convolutional layer
@@ -286,9 +277,7 @@ class Darknet(nn.Module):
                 if batch_normalize:
                     conv.add_module(
                         "conv{0}".format(conv_id),
-                        nn.Conv2d(
-                            prev_filters, filters, kernel_size, stride, pad, bias=False
-                        ),
+                        nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=False),
                     )
                     conv.add_module("bn{0}".format(conv_id), nn.BatchNorm2d(filters))
                 else:
@@ -299,9 +288,7 @@ class Darknet(nn.Module):
 
                 # add activation function
                 if activation == "leaky":
-                    conv.add_module(
-                        "leaky{0}".format(conv_id), nn.LeakyReLU(0.1, inplace=True)
-                    )
+                    conv.add_module("leaky{0}".format(conv_id), nn.LeakyReLU(0.1, inplace=True))
                 elif activation == "relu":
                     conv.add_module("relu{0}".format(conv_id), nn.ReLU(inplace=True))
                 elif activation == "mish":
@@ -323,13 +310,9 @@ class Darknet(nn.Module):
                 stride = int(block["stride"])
 
                 if stride == 1 and pool_size % 2:
-                    maxpool = nn.MaxPool2d(
-                        kernel_size=pool_size, stride=stride, padding=pool_size // 2
-                    )
+                    maxpool = nn.MaxPool2d(kernel_size=pool_size, stride=stride, padding=pool_size // 2)
                 elif stride == pool_size:
-                    maxpool = nn.MaxPool2d(
-                        kernel_size=pool_size, stride=stride, padding=0
-                    )
+                    maxpool = nn.MaxPool2d(kernel_size=pool_size, stride=stride, padding=0)
                 else:
                     maxpool = MaxPoolDark(pool_size, stride)
 
@@ -408,9 +391,7 @@ class Darknet(nn.Module):
                     yolo_layer.num_classes = int(block["classes"])
                     self.num_classes = yolo_layer.num_classes
                     yolo_layer.num_anchors = int(block["num"])
-                    yolo_layer.anchor_step = (
-                        len(yolo_layer.anchors) // yolo_layer.num_anchors
-                    )
+                    yolo_layer.anchor_step = len(yolo_layer.anchors) // yolo_layer.num_anchors
                     yolo_layer.stride = prev_stride
                     yolo_layer.scale_x_y = float(block["scale_x_y"])
                     out_filters.append(prev_filters)
