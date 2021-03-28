@@ -97,5 +97,5 @@ class YoloBEVLayer(nn.Module):
             print("training not implemented yet")
             return output
 
-        print("WARNING: all feature maps are rescaled to stride 8")
+        print("WARNING: durign inference all feature maps are rescaled to stride 8")
         return yolo_BEV_forward(output, self.stride, self.num_anchors, self.num_classes)

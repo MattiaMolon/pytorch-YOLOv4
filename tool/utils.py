@@ -15,6 +15,8 @@ from torch._C import import_ir_module_from_buffer
 from shapely.affinity import rotate, translate
 from shapely.geometry import Polygon
 
+from tqdm import tqdm
+
 
 def rect_polygon(x, y, width, height, angle):
     """Return a shapely Polygon describing the rectangle with centre at
@@ -24,7 +26,7 @@ def rect_polygon(x, y, width, height, angle):
     w = width / 2
     h = height / 2
     p = Polygon([(-w, -h), (w, -h), (w, h), (-w, h)])
-    return translate(rotate(p, angle), x, y)
+    return translate(rotate(p, angle, use_radians=True), x, y)
 
 
 def sigmoid(x):
@@ -119,8 +121,10 @@ def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> to
         # compute areas
         box1_area = (box1_[:, 2] - box1_[:, 0] + 1) * (box1_[:, 1] - box1_[:, 3] + 1)
         other_area = (other_[:, 2] - other_[:, 0] + 1) * (other_[:, 1] - other_[:, 3] + 1)
-        inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(
-            inter_rect_y1 - inter_rect_y2 + 1, min=0
+        inter_area = (
+            torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0)
+            * torch.clamp(inter_rect_y1 - inter_rect_y2 + 1, min=0)
+            + 1e-16
         )
         union_area = box1_area + other_area - inter_area
 
@@ -135,7 +139,7 @@ def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> to
             enclos_rect_y1 = torch.max(box1_[:, 1], other_[:, 1])
             enclos_rect_x2 = torch.max(box1_[:, 2], other_[:, 2])
             enclos_rect_y2 = torch.min(box1_[:, 3], other_[:, 3])
-            area_c = (enclos_rect_x2 - enclos_rect_x1 + 1) * (enclos_rect_y1 - enclos_rect_y2 + 1)
+            area_c = (enclos_rect_x2 - enclos_rect_x1 + 1) * (enclos_rect_y1 - enclos_rect_y2 + 1) + 1e-16
 
             del box1_, other_
             return iou - (area_c - union_area) / area_c
@@ -153,31 +157,31 @@ def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> to
         other_ = [rect_polygon(*r) for r in other_]
 
         # compute areas
-        box1_area = np.array([p.area for p in box1_])
-        other_area = np.array([p.area for p in other_])
-        inter_area = np.array([p.intersection(box1_[0]).area for p in other_])
+        box1_area = torch.Tensor([p.area for p in box1_])
+        other_area = torch.Tensor([p.area for p in other_])
+        inter_area = torch.Tensor([p.intersection(box1_[0]).area for p in other_]) + 1e-16
         union_area = box1_area + other_area - inter_area
 
         iou = inter_area / union_area
         if iou_type == "rIoU":
-            return torch.from_numpy(iou)
+            return iou
 
         elif iou_type == "rgIoU":
 
             # max and min of all xy coords
-            other_coords = np.array([p.exterior.coords.xy for p in other_])
-            box1_coords = np.array([p.exterior.coords.xy for p in box1_])
-            other_max_xy = other_coords.max(2)
-            other_min_xy = other_coords.min(2)
-            box1_max_xy = box1_coords.max(2)
-            box1_min_xy = box1_coords.min(2)
+            other_coords = torch.Tensor([p.exterior.coords.xy for p in other_])
+            box1_coords = torch.Tensor([p.exterior.coords.xy for p in box1_])
+            other_max_xy, _ = other_coords.max(2)
+            other_min_xy, _ = other_coords.min(2)
+            box1_max_xy, _ = box1_coords.max(2)
+            box1_min_xy, _ = box1_coords.min(2)
 
             # compute enclosed area
-            enclos_rect_x1 = np.min(box1_min_xy[:, 0], other_min_xy[:, 0])
-            enclos_rect_y1 = np.max(box1_max_xy[:, 1], other_max_xy[:, 1])
-            enclos_rect_x2 = np.max(box1_max_xy[:, 0], other_max_xy[:, 0])
-            enclos_rect_y2 = np.min(box1_min_xy[:, 1], other_min_xy[:, 1])
-            area_c = (enclos_rect_x2 - enclos_rect_x1 + 1) * (enclos_rect_y1 - enclos_rect_y2 + 1)
+            enclos_rect_x1 = torch.min(box1_min_xy[:, 0], other_min_xy[:, 0])
+            enclos_rect_y1 = torch.max(box1_max_xy[:, 1], other_max_xy[:, 1])
+            enclos_rect_x2 = torch.max(box1_max_xy[:, 0], other_max_xy[:, 0])
+            enclos_rect_y2 = torch.min(box1_min_xy[:, 1], other_min_xy[:, 1])
+            area_c = (enclos_rect_x2 - enclos_rect_x1 + 1) * (enclos_rect_y1 - enclos_rect_y2 + 1) + 1e-16
 
             return iou - (area_c - union_area) / area_c
 
@@ -381,19 +385,32 @@ def post_processing(img, conf_thresh, nms_thresh, output):
     return bboxes_batch
 
 
-def post_processing_BEV(prediction: torch.Tensor, obj_thresh: float = 0.3, nms_thresh: float = 0.6) -> Any:
+def post_processing_BEV(
+    prediction: torch.Tensor,
+    obj_thresh: float = 0.3,
+    nms_thresh: float = 0.6,
+    verbose: bool = True,
+    iou_type="IoU",
+) -> Any:
     """Aplly nms with rotation generalized IoU (rgIoU)
 
     Args:
         prediction (torch.Tensor): output of yolov4_BEV
         conf_thresh (float): confidence trashold for detection. Default = 0.3
         nms_thresh (float): nms treshold for rgIoU. Default = 0.7
+        verbose (bool): verbose if True. Default = False
+        iou_type (str): type of iou to use during NMS. Default = 'IoU'
 
     Returns:
         Any : filtered bboxes in BEV space for each image in batch.
               Format= [num_bboxes_batch * [batch_id, x,y,w,h,sin,cos,obj,conf,class]]
               Returns None if no detections have been made
     """
+    if verbose:
+        print(
+            f"Computing NMS with nms_threshold = {nms_thresh} and obj_thesh = {obj_thresh} and IoU = '{iou_type}'"
+        )
+        print("WARNING: This can take a while with rIoU or rgIoU")
 
     # filter for obj_treshold
     obj_mask = (prediction[..., 6] > obj_thresh).float().unsqueeze(2)
@@ -401,7 +418,7 @@ def post_processing_BEV(prediction: torch.Tensor, obj_thresh: float = 0.3, nms_t
 
     # loop the batch samples
     output_final = None
-    for batch_id, sample_pred in enumerate(prediction[:]):
+    for batch_id, sample_pred in tqdm(enumerate(prediction[:]), desc="Batch"):
 
         # instead of using all the classes, I substitute with max_conf and max_conf_idx
         max_conf, max_conf_idx = torch.max(sample_pred[:, 7:], 1)
@@ -431,12 +448,11 @@ def post_processing_BEV(prediction: torch.Tensor, obj_thresh: float = 0.3, nms_t
 
             # NMS
             for i in range(sample_pred_cls.size(0)):
-                print(sample_pred_cls.size(0))
                 try:
                     iou_score = my_IoU(
                         sample_pred_cls[i].unsqueeze(0),
                         sample_pred_cls[i + 1 :],
-                        iou_type="rIoU",
+                        iou_type=iou_type,
                     )
                 # exceptions when we try to call the function on an index
                 # that has been deleted in a previous step

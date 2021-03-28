@@ -7,6 +7,7 @@ from tool.yolo_layer import YoloLayer
 from tool.yolo_BEV_layer import YoloBEVLayer
 from tool.config import *
 from tool.torch_utils import *
+from typing import List
 
 
 class Mish(torch.nn.Module):
@@ -403,13 +404,16 @@ class Darknet(nn.Module):
 
         return model
 
-    def load_weights(self, weightfile):
+    def load_weights(self, weightfile: str, skip_layers: List[int] = [], cut_off: int = 10000):
         """load weights from darknet file format
         To have a better understanding of .weights definition look at:
         https://blog.paperspace.com/how-to-implement-a-yolo-v3-object-detector-from-scratch-in-pytorch-part-3/
+        For parameters that require layers indexes -> You can look at the layers' indexes using the print_network() function.
 
         Args:
             weightfile (str): Path to weights file
+            skip_layers (List[int]): list of layers' indexes to skip while loading weights. Default = []
+            cut_off (int): index of the last layer's weights to load. Default = 10000.
         """
         fp = open(weightfile, "rb")
         header = np.fromfile(fp, count=5, dtype=np.int32)
@@ -421,9 +425,19 @@ class Darknet(nn.Module):
         start = 0
         ind = -2
         for block in self.blocks:
+            # end condition
             if start >= buf.size:
                 break
+
+            # skip conditions
             ind = ind + 1
+            if ind > cut_off:
+                break
+            if ind in skip_layers:
+                print(f"WARNING: Skipped layer {ind} while loading weights")
+                continue
+
+            # load weights
             if block["type"] == "net":
                 continue
             elif block["type"] == "convolutional":

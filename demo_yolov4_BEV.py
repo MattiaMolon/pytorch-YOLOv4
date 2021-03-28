@@ -21,8 +21,8 @@ def detect_BEV(cfgfile, weightfile, imgfile):
     # load model
     m = Darknet(cfgfile, BEV=True)
     # m.print_network()
-    # m.load_weights(weightfile)
-    # print("Loading weights from %s... Done!" % (weightfile))
+    m.load_weights(weightfile, cut_off=128)
+    print("Loading weights from %s... Done!" % (weightfile))
 
     # push to GPU
     if use_cuda:
@@ -43,7 +43,7 @@ def detect_BEV(cfgfile, weightfile, imgfile):
 
     # run inference
     start = time.time()
-    boxes = do_detect(m, sized, 0.4, 0.00001, use_cuda)
+    boxes = do_detect(m, sized, 0.4, 0.6, use_cuda)
     finish = time.time()
     print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
 
