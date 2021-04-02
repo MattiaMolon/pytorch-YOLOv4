@@ -52,7 +52,7 @@ def get_args():
     parser.add_argument(
         "-cfgfile",
         type=str,
-        default="./cfg/yolov4.cfg",
+        default="./cfg/model/yolov4.cfg",
         help="path of cfg file",
         dest="cfgfile",
     )

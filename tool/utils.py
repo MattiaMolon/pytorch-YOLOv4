@@ -385,7 +385,7 @@ def post_processing(img, conf_thresh, nms_thresh, output):
     return bboxes_batch
 
 
-def post_processing_BEV(
+def post_processing_BEV_grid(
     prediction: torch.Tensor,
     obj_thresh: float = 0.3,
     nms_thresh: float = 0.6,
@@ -407,10 +407,13 @@ def post_processing_BEV(
               Returns None if no detections have been made
     """
     if verbose:
+        print("-----------------------------------")
         print(
             f"Computing NMS with nms_threshold = {nms_thresh} and obj_thesh = {obj_thresh} and IoU = '{iou_type}'"
         )
         print("WARNING: This can take a while with rIoU or rgIoU")
+        print("\t Call this method with 'verbose' = False to avoid this message")
+        print("-----------------------------------")
 
     # filter for obj_treshold
     obj_mask = (prediction[..., 6] > obj_thresh).float().unsqueeze(2)

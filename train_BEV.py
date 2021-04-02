@@ -1,15 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-@Time          : 2020/05/06 15:07
-@Author        : Tianxiaomo
-@File          : train.py
-@Noice         :
-@Modificattion :
-    @Author    :
-    @Time      :
-    @Detail    :
-
-"""
 import time
 import logging
 import os, sys, math
@@ -18,6 +6,8 @@ from collections import deque
 import datetime
 
 import cv2
+from numpy.core.fromnumeric import size
+from torch.nn.modules import module
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -29,115 +19,13 @@ from tensorboardX import SummaryWriter
 from easydict import EasyDict as edict
 
 from dataset import Yolo_dataset
-from cfg import Cfg
+from cfg.train.cfg_yolov4_BEV import Cfg
 from models import Yolov4
+
 from tool.darknet2pytorch import Darknet
+from tool.utils import my_IoU
 
-from tool.tv_reference.utils import collate_fn as val_collate
-from tool.tv_reference.coco_utils import convert_to_coco_api
-from tool.tv_reference.coco_eval import CocoEvaluator
-
-from typing import Tuple
-
-
-def bboxes_iou(bboxes_a, bboxes_b, xyxy=True, GIoU=False, DIoU=False, CIoU=False):
-    """Calculate the Intersection of Unions (IoUs) between bounding boxes.
-    IoU is calculated as a ratio of area of the intersection
-    and area of the union.
-
-    Args:
-        bbox_a (array): An array whose shape is :math:`(N, 4)`.
-            :math:`N` is the number of bounding boxes.
-            The dtype should be :obj:`numpy.float32`.
-        bbox_b (array): An array similar to :obj:`bbox_a`,
-            whose shape is :math:`(K, 4)`.
-            The dtype should be :obj:`numpy.float32`.
-    Returns:
-        array:
-        An array whose shape is :math:`(N, K)`. \
-        An element at index :math:`(n, k)` contains IoUs between \
-        :math:`n` th bounding box in :obj:`bbox_a` and :math:`k` th bounding \
-        box in :obj:`bbox_b`.
-
-    from: https://github.com/chainer/chainercv
-    https://github.com/ultralytics/yolov3/blob/eca5b9c1d36e4f73bf2f94e141d864f1c2739e23/utils/utils.py#L262-L282
-    """
-    if bboxes_a.shape[1] != 4 or bboxes_b.shape[1] != 4:
-        raise IndexError
-
-    if xyxy:
-        # intersection top left
-        tl = torch.max(bboxes_a[:, None, :2], bboxes_b[:, :2])
-        # intersection bottom right
-        br = torch.min(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
-        # convex (smallest enclosing box) top left and bottom right
-        con_tl = torch.min(bboxes_a[:, None, :2], bboxes_b[:, :2])
-        con_br = torch.max(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
-        # centerpoint distance squared
-        rho2 = (
-            (bboxes_a[:, None, 0] + bboxes_a[:, None, 2]) - (bboxes_b[:, 0] + bboxes_b[:, 2])
-        ) ** 2 / 4 + (
-            (bboxes_a[:, None, 1] + bboxes_a[:, None, 3]) - (bboxes_b[:, 1] + bboxes_b[:, 3])
-        ) ** 2 / 4
-
-        w1 = bboxes_a[:, 2] - bboxes_a[:, 0]
-        h1 = bboxes_a[:, 3] - bboxes_a[:, 1]
-        w2 = bboxes_b[:, 2] - bboxes_b[:, 0]
-        h2 = bboxes_b[:, 3] - bboxes_b[:, 1]
-
-        area_a = torch.prod(bboxes_a[:, 2:] - bboxes_a[:, :2], 1)
-        area_b = torch.prod(bboxes_b[:, 2:] - bboxes_b[:, :2], 1)
-    else:
-        # intersection top left
-        tl = torch.max(
-            (bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2),
-            (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2),
-        )
-        # intersection bottom right
-        br = torch.min(
-            (bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2),
-            (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2),
-        )
-
-        # convex (smallest enclosing box) top left and bottom right
-        con_tl = torch.min(
-            (bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2),
-            (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2),
-        )
-        con_br = torch.max(
-            (bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2),
-            (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2),
-        )
-        # centerpoint distance squared
-        rho2 = ((bboxes_a[:, None, :2] - bboxes_b[:, :2]) ** 2 / 4).sum(dim=-1)
-
-        w1 = bboxes_a[:, 2]
-        h1 = bboxes_a[:, 3]
-        w2 = bboxes_b[:, 2]
-        h2 = bboxes_b[:, 3]
-
-        area_a = torch.prod(bboxes_a[:, 2:], 1)
-        area_b = torch.prod(bboxes_b[:, 2:], 1)
-    en = (tl < br).type(tl.type()).prod(dim=2)
-    area_i = torch.prod(br - tl, 2) * en  # * ((tl < br).all())
-    area_u = area_a[:, None] + area_b - area_i
-    iou = area_i / area_u
-
-    if GIoU or DIoU or CIoU:
-        if GIoU:  # Generalized IoU https://arxiv.org/pdf/1902.09630.pdf
-            area_c = torch.prod(con_br - con_tl, 2)  # convex area
-            return iou - (area_c - area_u) / area_c  # GIoU
-        if DIoU or CIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
-            # convex diagonal squared
-            c2 = torch.pow(con_br - con_tl, 2).sum(dim=2) + 1e-16
-            if DIoU:
-                return iou - rho2 / c2  # DIoU
-            elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
-                v = (4 / math.pi ** 2) * torch.pow(torch.atan(w1 / h1).unsqueeze(1) - torch.atan(w2 / h2), 2)
-                with torch.no_grad():
-                    alpha = v / (1 - iou + v)
-                return iou - (rho2 / c2 + v * alpha)  # CIoU
-    return iou
+from typing import Dict, Tuple, List
 
 
 class Yolo_loss(nn.Module):
@@ -407,6 +295,274 @@ def collate(batch):
     return images, bboxes
 
 
+def train_OLD(
+    model,
+    device,
+    config,
+    epochs=5,
+    batch_size=1,
+    save_cp=True,
+    log_step=20,
+    img_scale=0.5,
+):
+
+    train_dataset = Yolo_dataset(config.train_label, config, train=True)
+    val_dataset = Yolo_dataset(config.val_label, config, train=False)
+
+    n_train = len(train_dataset)
+    n_val = len(val_dataset)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config.batch // config.subdivisions,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=collate,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config.batch // config.subdivisions,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=val_collate,
+    )
+
+    writer = SummaryWriter(
+        log_dir=config.TRAIN_TENSORBOARD_DIR,
+        filename_suffix=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}",
+        comment=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}",
+    )
+    # writer.add_images('legend',
+    #                   torch.from_numpy(train_dataset.label2colorlegend2(cfg.DATA_CLASSES).transpose([2, 0, 1])).to(
+    #                       device).unsqueeze(0))
+    max_itr = config.TRAIN_EPOCHS * n_train
+    # global_step = cfg.TRAIN_MINEPOCH * n_train
+    global_step = 0
+    logging.info(
+        f"""Starting training:
+        Epochs:          {epochs}
+        Batch size:      {config.batch}
+        Subdivisions:    {config.subdivisions}
+        Learning rate:   {config.learning_rate}
+        Training size:   {n_train}
+        Validation size: {n_val}
+        Checkpoints:     {save_cp}
+        Device:          {device.type}
+        Images size:     {config.width}
+        Optimizer:       {config.TRAIN_OPTIMIZER}
+        Dataset classes: {config.classes}
+        Train label path:{config.train_label}
+        Pretrained:
+    """
+    )
+
+    # learning rate setup
+    def burnin_schedule(i):
+        if i < config.burn_in:
+            factor = pow(i / config.burn_in, 4)
+        elif i < config.steps[0]:
+            factor = 1.0
+        elif i < config.steps[1]:
+            factor = 0.1
+        else:
+            factor = 0.01
+        return factor
+
+    if config.TRAIN_OPTIMIZER.lower() == "adam":
+        optimizer = optim.Adam(
+            model.parameters(),
+            lr=config.learning_rate / config.batch,
+            betas=(0.9, 0.999),
+            eps=1e-08,
+        )
+    elif config.TRAIN_OPTIMIZER.lower() == "sgd":
+        optimizer = optim.SGD(
+            params=model.parameters(),
+            lr=config.learning_rate / config.batch,
+            momentum=config.momentum,
+            weight_decay=config.decay,
+        )
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, burnin_schedule)
+
+    criterion = Yolo_loss(
+        device=device,
+        batch=config.batch // config.subdivisions,
+        n_classes=config.classes,
+    )
+    # scheduler = ReduceLROnPlateau(optimizer, mode='max', verbose=True, patience=6, min_lr=1e-7)
+    # scheduler = CosineAnnealingWarmRestarts(optimizer, 0.001, 1e-6, 20)
+
+    save_prefix = "Yolov4_epoch"
+    saved_models = deque()
+    model.train()
+    for epoch in range(epochs):
+        # model.train()
+        epoch_loss = 0
+        epoch_step = 0
+
+        with tqdm(total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img", ncols=50) as pbar:
+            for i, batch in enumerate(train_loader):
+                global_step += 1
+                epoch_step += 1
+                images = batch[0]
+                bboxes = batch[1]
+
+                images = images.to(device=device, dtype=torch.float32)
+                bboxes = bboxes.to(device=device)
+
+                bboxes_pred = model(images)
+                loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = criterion(bboxes_pred, bboxes)
+                # loss = loss / config.subdivisions
+                loss.backward()
+
+                epoch_loss += loss.item()
+
+                if global_step % config.subdivisions == 0:
+                    optimizer.step()
+                    scheduler.step()
+                    model.zero_grad()
+
+                if global_step % (log_step * config.subdivisions) == 0:
+                    writer.add_scalar("train/Loss", loss.item(), global_step)
+                    writer.add_scalar("train/loss_xy", loss_xy.item(), global_step)
+                    writer.add_scalar("train/loss_wh", loss_wh.item(), global_step)
+                    writer.add_scalar("train/loss_obj", loss_obj.item(), global_step)
+                    writer.add_scalar("train/loss_cls", loss_cls.item(), global_step)
+                    writer.add_scalar("train/loss_l2", loss_l2.item(), global_step)
+                    writer.add_scalar("lr", scheduler.get_lr()[0] * config.batch, global_step)
+                    pbar.set_postfix(
+                        **{
+                            "loss (batch)": loss.item(),
+                            "loss_xy": loss_xy.item(),
+                            "loss_wh": loss_wh.item(),
+                            "loss_obj": loss_obj.item(),
+                            "loss_cls": loss_cls.item(),
+                            "loss_l2": loss_l2.item(),
+                            "lr": scheduler.get_lr()[0] * config.batch,
+                        }
+                    )
+                    logging.debug(
+                        "Train step_{}: loss : {},loss xy : {},loss wh : {},"
+                        "loss obj : {}，loss cls : {},loss l2 : {},lr : {}".format(
+                            global_step,
+                            loss.item(),
+                            loss_xy.item(),
+                            loss_wh.item(),
+                            loss_obj.item(),
+                            loss_cls.item(),
+                            loss_l2.item(),
+                            scheduler.get_lr()[0] * config.batch,
+                        )
+                    )
+
+                pbar.update(images.shape[0])
+
+            if cfg.use_darknet_cfg:
+                eval_model = Darknet(cfg.cfgfile, inference=True)
+            else:
+                eval_model = Yolov4(cfg.pretrained, n_classes=cfg.classes, inference=True)
+            # eval_model = Yolov4(yolov4conv137weight=None, n_classes=config.classes, inference=True)
+            if torch.cuda.device_count() > 1:
+                eval_model.load_state_dict(model.module.state_dict())
+            else:
+                eval_model.load_state_dict(model.state_dict())
+            eval_model.to(device)
+            evaluator = evaluate(eval_model, val_loader, config, device)
+            del eval_model
+
+            stats = evaluator.coco_eval["bbox"].stats
+            writer.add_scalar("train/AP", stats[0], global_step)
+            writer.add_scalar("train/AP50", stats[1], global_step)
+            writer.add_scalar("train/AP75", stats[2], global_step)
+            writer.add_scalar("train/AP_small", stats[3], global_step)
+            writer.add_scalar("train/AP_medium", stats[4], global_step)
+            writer.add_scalar("train/AP_large", stats[5], global_step)
+            writer.add_scalar("train/AR1", stats[6], global_step)
+            writer.add_scalar("train/AR10", stats[7], global_step)
+            writer.add_scalar("train/AR100", stats[8], global_step)
+            writer.add_scalar("train/AR_small", stats[9], global_step)
+            writer.add_scalar("train/AR_medium", stats[10], global_step)
+            writer.add_scalar("train/AR_large", stats[11], global_step)
+
+            if save_cp:
+                try:
+                    # os.mkdir(config.checkpoints)
+                    os.makedirs(config.checkpoints, exist_ok=True)
+                    logging.info("Created checkpoint directory")
+                except OSError:
+                    pass
+                save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
+                torch.save(model.state_dict(), save_path)
+                logging.info(f"Checkpoint {epoch + 1} saved !")
+                saved_models.append(save_path)
+                if len(saved_models) > config.keep_checkpoint_max > 0:
+                    model_to_remove = saved_models.popleft()
+                    try:
+                        os.remove(model_to_remove)
+                    except:
+                        logging.info(f"failed to remove {model_to_remove}")
+
+    writer.close()
+
+
+def get_sample_data(config: edict, sample_dim: int = 20) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get sample data to test training
+
+    Args:
+        config (edict): cofiguration dictionary
+        sample_dim (int, optional): Number of samples to use. Defaults to 20.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Tuple containing the batch of images and a list of all the labels for each image
+            ([batch_size, W, H, 3], [batch_size, n_labels, ['x', 'y', 'w', 'h', 'cos', 'sin', 'cls']])
+    """
+    # load sample dataset
+    train_dir = os.path.join(config.dataset_dir, "train")
+    img_dir = os.path.join(train_dir, "images")
+    lab_dir = os.path.join(train_dir, "labels")
+
+    sample_dim = 20  # number of sample images
+    img_paths = [os.path.join(img_dir, p) for p in os.listdir(img_dir)[:sample_dim]]
+    lab_paths = [os.path.join(lab_dir, p) for p in os.listdir(lab_dir)[:sample_dim]]
+
+    # batch of images
+    imgs = []
+    for path in img_paths:
+        img = cv2.imread(path)
+        sized = cv2.resize(img, (config.width, config.height))
+        sized = cv2.cvtColor(sized, cv2.COLOR_BGR2RGB)
+        imgs.append(sized)
+    imgs = torch.Tensor(imgs).float().to(device) / 255.0
+
+    # generate labels
+    # get names
+    names = {}
+    with open(config.names_path) as f:
+        for cls_id, line in enumerate(f.readlines()):
+            line = line.strip()
+            names[line] = float(cls_id)
+            names[cls_id] = line
+
+    labels = []
+    for path in lab_paths:
+        with open(path, "r") as f:
+            for line in f.readlines():
+                # fmt: off
+                import IPython ; IPython.embed()
+                # fmt: on
+                bbox_params = line.strip().split()
+                bbox = []
+                bbox.append(names[bbox_params[0]])
+
+    return imgs, labels
+
+
+# my implementation of train
 def train(
     model,
     device,
@@ -417,8 +573,9 @@ def train(
     log_step=20,
     img_scale=0.5,
 ):
-    train_dataset = Yolo_dataset(config.train_label, config, train=True)
-    val_dataset = Yolo_dataset(config.val_label, config, train=False)
+
+    # TODO: use Dataloaders from pytorch and use full dataset
+    train_imgs, train_labels = get_sample_data(config, 20)
 
     n_train = len(train_dataset)
     n_val = len(val_dataset)
@@ -685,14 +842,17 @@ def evaluate(model, data_loader, cfg, device, logger=None, **kwargs):
     return coco_evaluator
 
 
-def get_args(**kwargs):
+def get_args(**kwargs) -> dict:
+    """Get args from command line and add them to cfg dictionary
+
+    Returns:
+        dict: dictionary with config params of the training and network
+    """
     cfg = kwargs
     parser = argparse.ArgumentParser(
         description="Train the Model on images and target masks",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    # parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=2,
-    #                     help='Batch size', dest='batchsize')
     parser.add_argument(
         "-l",
         "--learning-rate",
@@ -711,24 +871,24 @@ def get_args(**kwargs):
         default=None,
         help="Load model from a .pth file",
     )
-    parser.add_argument("-g", "--gpu", metavar="G", type=str, default="-1", help="GPU", dest="gpu")
+    parser.add_argument("-g", "--gpu", metavar="G", type=str, default="-1", help="GPU id", dest="gpu")
     parser.add_argument(
         "-dir",
         "--data-dir",
         type=str,
-        default=None,
+        default=os.path.abspath("..") + "/data/KITTI",
         help="dataset dir",
         dest="dataset_dir",
     )
-    parser.add_argument("-pretrained", type=str, default=None, help="pretrained yolov4.conv.137")
-    parser.add_argument("-classes", type=int, default=80, help="dataset classes")
     parser.add_argument(
-        "-train_label_path",
-        dest="train_label",
+        "-names",
+        "--names-path",
         type=str,
-        default="train.txt",
-        help="train label path",
+        default=os.path.abspath(".") + "/names/BEV.names",
+        help="names file location",
+        dest="names_path",
     )
+    parser.add_argument("-classes", type=int, default=1, help="dataset classes")
     parser.add_argument(
         "-optimizer",
         type=str,
@@ -739,8 +899,8 @@ def get_args(**kwargs):
     parser.add_argument(
         "-iou-type",
         type=str,
-        default="iou",
-        help="iou type (iou, giou, diou, ciou)",
+        default="IoU",
+        help="iou type (IoU, gIoU, rIoU, rgIoU)",
         dest="iou_type",
     )
     parser.add_argument(
@@ -759,17 +919,29 @@ def get_args(**kwargs):
     return edict(cfg)
 
 
-def init_logger(log_file=None, log_dir=None, log_level=logging.INFO, mode="w", stdout=True):
-    """
-    log_dir: 日志文件的文件夹路径
-    mode: 'a', append; 'w', 覆盖原文件写入.
-    """
+def init_logger(
+    log_file: str = None,
+    log_dir: str = None,
+    log_level: int = logging.INFO,
+    mode: str = "w",
+    stdout: bool = True,
+) -> module:
+    """initialize logger
 
-    def get_date_str():
-        now = datetime.datetime.now()
-        return now.strftime("%Y-%m-%d_%H-%M-%S")
+    Args:
+        log_file (str, optional): log file name. Defaults to None.
+        log_dir (str, optional): log directory. Defaults to None.
+        log_level (int, optional): type of log level to use. Defaults to logging.INFO.
+        mode (str, optional): mode of the logger, either w to overide or a to append. Defaults to "w".
+        stdout (bool, optional): use stdout to print informations. Defaults to True.
 
+    Returns:
+        module: initialized logger
+    """
+    # format definition
     fmt = "%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s: %(message)s"
+
+    # logger directories
     if log_dir is None:
         log_dir = "~/temp/log/"
     if log_file is None:
@@ -777,11 +949,11 @@ def init_logger(log_file=None, log_dir=None, log_level=logging.INFO, mode="w", s
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     log_file = os.path.join(log_dir, log_file)
-    # 此处不能使用logging输出
     print("log file path:" + log_file)
 
     logging.basicConfig(level=logging.DEBUG, format=fmt, filename=log_file, filemode=mode)
 
+    # use stdout
     if stdout:
         console = logging.StreamHandler(stream=sys.stdout)
         console.setLevel(log_level)
@@ -792,23 +964,29 @@ def init_logger(log_file=None, log_dir=None, log_level=logging.INFO, mode="w", s
     return logging
 
 
-def _get_date_str():
+def get_date_str() -> str:
+    """Get current date and time in a nice format "Y-M-D_h-m"
+
+    Returns:
+        str: string with date and time
+    """
     now = datetime.datetime.now()
     return now.strftime("%Y-%m-%d_%H-%M")
 
 
 if __name__ == "__main__":
+
+    # get logger and args
     logging = init_logger(log_dir="log")
     cfg = get_args(**Cfg)
+
+    # look for available devices
     os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpu
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device {device}")
 
-    if cfg.use_darknet_cfg:
-        model = Darknet(cfg.cfgfile)
-    else:
-        model = Yolov4(cfg.pretrained, n_classes=cfg.classes)
-
+    # load model and push to device
+    model = Darknet(cfg.cfgfile)
     if torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
     model.to(device=device)
@@ -821,8 +999,8 @@ if __name__ == "__main__":
             device=device,
         )
     except KeyboardInterrupt:
-        torch.save(model.state_dict(), "INTERRUPTED.pth")
-        logging.info("Saved interrupt")
+        torch.save(model.state_dict(), "checkpoints/INTERRUPTED.pth")
+        logging.info("Saved interrupt to checkpoints/INTERRUPTED.pth")
         try:
             sys.exit(0)
         except SystemExit:

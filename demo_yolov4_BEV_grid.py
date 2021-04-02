@@ -9,8 +9,8 @@ import argparse
 use_cuda = False
 
 
-def detect_BEV(cfgfile, weightfile, imgfile):
-    """Detect elements in BEV map with yolov4_BEV
+def detect_BEV_grid(cfgfile, weightfile, imgfile):
+    """Detect elements in BEV map with yolov4_BEV_grid
 
     Args:
         cfgfile (str): Path to .cfg file
@@ -19,7 +19,7 @@ def detect_BEV(cfgfile, weightfile, imgfile):
     """
 
     # load model
-    m = Darknet(cfgfile, BEV=True)
+    m = Darknet(cfgfile, model_type="BEV_grid")
     # m.print_network()
     m.load_weights(weightfile, cut_off=128)
     print("Loading weights from %s... Done!" % (weightfile))
@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(
         "-cfgfile",
         type=str,
-        default="./cfg/yolov4_BEV.cfg",
+        default="./cfg/model/yolov4_BEV_grid.cfg",
         help="path of cfg file",
         dest="cfgfile",
     )
@@ -69,7 +69,7 @@ def get_args():
     parser.add_argument(
         "-imgfile",
         type=str,
-        default="../data/KITTI/training/images/000001.png",
+        default="../data/KITTI/train/images/000001.png",
         help="path of your image file.",
         dest="imgfile",
     )
@@ -80,4 +80,4 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    detect_BEV(args.cfgfile, args.weightfile, args.imgfile)
+    detect_BEV_grid(args.cfgfile, args.weightfile, args.imgfile)

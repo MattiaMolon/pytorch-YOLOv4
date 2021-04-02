@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from tool.region_loss import RegionLoss
 from tool.yolo_layer import YoloLayer
-from tool.yolo_BEV_layer import YoloBEVLayer
+from tool.yolo_BEV_grid_layer import YoloBEVGridLayer
 from tool.config import *
 from tool.torch_utils import *
 from typing import List
@@ -96,7 +96,14 @@ class EmptyModule(nn.Module):
 
 # support route shortcut and reorg
 class Darknet(nn.Module):
-    def __init__(self, cfgfile, BEV=False, inference=False):
+    def __init__(self, cfgfile, model_type="Yolov4", inference=False):
+        """Initialization of Darket based network
+
+        Args:
+            cfgfile (str): path to cfg file
+            model_type (str, optional): Type of network used. Can be ["Yolov4", "BEV_grid", "BEV_flat"]. Defaults to "Yolov4".
+            inference (bool, optional): Define how the network will be used. Defaults to False.
+        """
         super(Darknet, self).__init__()
 
         # what are we using the model for
@@ -115,10 +122,10 @@ class Darknet(nn.Module):
         self.num_anchors = int(self.blocks[0]["num"])
 
         # define type of model
-        self.is_BEV = True
+        self.model_type = model_type
 
         # create model from blocks
-        self.model = self.create_network(self.blocks)  # merge conv, bn, leaky
+        self.model = self.create_network(self.blocks)
         self.loss = self.model[len(self.model) - 1]
 
         # needed for weights
@@ -126,7 +133,7 @@ class Darknet(nn.Module):
         self.seen = 0
 
     def forward(self, x: np.ndarray) -> torch.Tensor:
-        """forward pass for Yolov4_BEV
+        """forward pass of the model
 
         Args:
             x (np.ndarray): batch of images
@@ -194,9 +201,9 @@ class Darknet(nn.Module):
 
             elif block["type"] == "yolo":
                 boxes = self.model[ind](x)
-                if self.training:
+                if self.training:  # no preprocessing on output
                     out_boxes.append(boxes)
-                else:
+                else:  # returned preprocessed bboxes
                     if not concat_output:
                         out_boxes = boxes
                         concat_output = True
@@ -212,19 +219,27 @@ class Darknet(nn.Module):
             #              predictions_stride_32]
             return out_boxes
         else:
-            # out_boxes = [x on stride 8,
-            #             y on stride 8,
-            #             exp(w),
-            #             exp(l),
-            #             sin(rotation),
-            #             cos(rotation),
-            #             obj,
-            #             ... class confs,
-            #             ]
-            # transform out_boxes to BEV dimensions such that we can compare them with gt
-            return self.transform_boxes_to_BEV(out_boxes)
+            if self.model_type == "Yolov4":
+                return get_region_boxes(out_boxes)
 
-    def transform_boxes_to_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
+            elif self.model_type == "BEV_grid":
+                # out_boxes = [x on stride 8,
+                #             y on stride 8,
+                #             exp(w),
+                #             exp(l),
+                #             sin(rotation),
+                #             cos(rotation),
+                #             obj,
+                #             ... class confs,
+                #             ]
+                # transform out_boxes to BEV dimensions such that we can compare them with gt
+                return self.from_BEV_grid_to_BEV(out_boxes)
+
+            else:
+                print("model type not recognized")
+                quit(1)
+
+    def from_BEV_grid_to_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
         """Transform out_boxes from biggest feature map space into BEV space
 
         Args:
@@ -371,9 +386,9 @@ class Darknet(nn.Module):
                 model.append(EmptyModule())
 
             elif block["type"] == "yolo":
-                if self.is_BEV:  # my BEV layer
+                if self.model_type == "BEV_grid":  # my BEV layer
                     # TODO: go through this code and remove unneccessary parameters
-                    yolo_layer = YoloBEVLayer()
+                    yolo_layer = YoloBEVGridLayer()
                     yolo_layer.num_classes = int(block["classes"])
                     self.num_classes = yolo_layer.num_classes
                     yolo_layer.num_anchors = self.num_anchors
@@ -383,7 +398,7 @@ class Darknet(nn.Module):
                     out_strides.append(prev_stride)
                     model.append(yolo_layer)
 
-                else:  # Classic Yolo layer
+                elif self.model_type == "Yolov4":  # Classic Yolo layer
                     yolo_layer = YoloLayer()
                     anchors = block["anchors"].split(",")
                     anchor_mask = block["mask"].split(",")
@@ -398,6 +413,10 @@ class Darknet(nn.Module):
                     out_filters.append(prev_filters)
                     out_strides.append(prev_stride)
                     model.append(yolo_layer)
+
+                else:
+                    print("model type not recognized!")
+                    quit(1)
 
             else:
                 print("unknown type %s" % (block["type"]))

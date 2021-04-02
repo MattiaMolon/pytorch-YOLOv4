@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 @Time          : 2020/05/06 15:07
 @Author        : Tianxiaomo
 @File          : train.py
@@ -9,7 +9,7 @@
     @Time      :
     @Detail    :
 
-'''
+"""
 import time
 import logging
 import os, sys, math
@@ -29,7 +29,7 @@ from tensorboardX import SummaryWriter
 from easydict import EasyDict as edict
 
 from dataset import Yolo_dataset
-from cfg import Cfg
+from cfg.train.cfg_yolov4 import Cfg
 from models import Yolov4
 from tool.darknet2pytorch import Darknet
 
@@ -72,8 +72,11 @@ def bboxes_iou(bboxes_a, bboxes_b, xyxy=True, GIoU=False, DIoU=False, CIoU=False
         con_tl = torch.min(bboxes_a[:, None, :2], bboxes_b[:, :2])
         con_br = torch.max(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
         # centerpoint distance squared
-        rho2 = ((bboxes_a[:, None, 0] + bboxes_a[:, None, 2]) - (bboxes_b[:, 0] + bboxes_b[:, 2])) ** 2 / 4 + (
-                (bboxes_a[:, None, 1] + bboxes_a[:, None, 3]) - (bboxes_b[:, 1] + bboxes_b[:, 3])) ** 2 / 4
+        rho2 = (
+            (bboxes_a[:, None, 0] + bboxes_a[:, None, 2]) - (bboxes_b[:, 0] + bboxes_b[:, 2])
+        ) ** 2 / 4 + (
+            (bboxes_a[:, None, 1] + bboxes_a[:, None, 3]) - (bboxes_b[:, 1] + bboxes_b[:, 3])
+        ) ** 2 / 4
 
         w1 = bboxes_a[:, 2] - bboxes_a[:, 0]
         h1 = bboxes_a[:, 3] - bboxes_a[:, 1]
@@ -84,17 +87,21 @@ def bboxes_iou(bboxes_a, bboxes_b, xyxy=True, GIoU=False, DIoU=False, CIoU=False
         area_b = torch.prod(bboxes_b[:, 2:] - bboxes_b[:, :2], 1)
     else:
         # intersection top left
-        tl = torch.max((bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2),
-                       (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2))
+        tl = torch.max(
+            (bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2), (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
+        )
         # intersection bottom right
-        br = torch.min((bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2),
-                       (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2))
+        br = torch.min(
+            (bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2), (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        )
 
         # convex (smallest enclosing box) top left and bottom right
-        con_tl = torch.min((bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2),
-                           (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2))
-        con_br = torch.max((bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2),
-                           (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2))
+        con_tl = torch.min(
+            (bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2), (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
+        )
+        con_br = torch.max(
+            (bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2), (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        )
         # centerpoint distance squared
         rho2 = ((bboxes_a[:, None, :2] - bboxes_b[:, :2]) ** 2 / 4).sum(dim=-1)
 
@@ -136,11 +143,28 @@ class Yolo_loss(nn.Module):
         self.n_classes = n_classes
         self.n_anchors = n_anchors
 
-        self.anchors = [[12, 16], [19, 36], [40, 28], [36, 75], [76, 55], [72, 146], [142, 110], [192, 243], [459, 401]]
+        self.anchors = [
+            [12, 16],
+            [19, 36],
+            [40, 28],
+            [36, 75],
+            [76, 55],
+            [72, 146],
+            [142, 110],
+            [192, 243],
+            [459, 401],
+        ]
         self.anch_masks = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
         self.ignore_thre = 0.5
 
-        self.masked_anchors, self.ref_anchors, self.grid_x, self.grid_y, self.anchor_w, self.anchor_h = [], [], [], [], [], []
+        self.masked_anchors, self.ref_anchors, self.grid_x, self.grid_y, self.anchor_w, self.anchor_h = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
 
         for i in range(3):
             all_anchors_grid = [(w / self.strides[i], h / self.strides[i]) for w, h in self.anchors]
@@ -151,11 +175,24 @@ class Yolo_loss(nn.Module):
             # calculate pred - xywh obj cls
             fsize = image_size // self.strides[i]
             grid_x = torch.arange(fsize, dtype=torch.float).repeat(batch, 3, fsize, 1).to(device)
-            grid_y = torch.arange(fsize, dtype=torch.float).repeat(batch, 3, fsize, 1).permute(0, 1, 3, 2).to(device)
-            anchor_w = torch.from_numpy(masked_anchors[:, 0]).repeat(batch, fsize, fsize, 1).permute(0, 3, 1, 2).to(
-                device)
-            anchor_h = torch.from_numpy(masked_anchors[:, 1]).repeat(batch, fsize, fsize, 1).permute(0, 3, 1, 2).to(
-                device)
+            grid_y = (
+                torch.arange(fsize, dtype=torch.float)
+                .repeat(batch, 3, fsize, 1)
+                .permute(0, 1, 3, 2)
+                .to(device)
+            )
+            anchor_w = (
+                torch.from_numpy(masked_anchors[:, 0])
+                .repeat(batch, fsize, fsize, 1)
+                .permute(0, 3, 1, 2)
+                .to(device)
+            )
+            anchor_h = (
+                torch.from_numpy(masked_anchors[:, 1])
+                .repeat(batch, fsize, fsize, 1)
+                .permute(0, 3, 1, 2)
+                .to(device)
+            )
 
             self.masked_anchors.append(masked_anchors)
             self.ref_anchors.append(ref_anchors)
@@ -166,7 +203,9 @@ class Yolo_loss(nn.Module):
 
     def build_target(self, pred, labels, batchsize, fsize, n_ch, output_id):
         # target assignment
-        tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 4 + self.n_classes).to(device=self.device)
+        tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 4 + self.n_classes).to(
+            device=self.device
+        )
         obj_mask = torch.ones(batchsize, self.n_anchors, fsize, fsize).to(device=self.device)
         tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2).to(self.device)
         target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch).to(self.device)
@@ -198,9 +237,11 @@ class Yolo_loss(nn.Module):
 
             best_n_all = anchor_ious_all.argmax(dim=1)
             best_n = best_n_all % 3
-            best_n_mask = ((best_n_all == self.anch_masks[output_id][0]) |
-                           (best_n_all == self.anch_masks[output_id][1]) |
-                           (best_n_all == self.anch_masks[output_id][2]))
+            best_n_mask = (
+                (best_n_all == self.anch_masks[output_id][0])
+                | (best_n_all == self.anch_masks[output_id][1])
+                | (best_n_all == self.anch_masks[output_id][2])
+            )
 
             if sum(best_n_mask) == 0:
                 continue
@@ -210,10 +251,10 @@ class Yolo_loss(nn.Module):
 
             pred_ious = bboxes_iou(pred[b].view(-1, 4), truth_box, xyxy=False)
             pred_best_iou, _ = pred_ious.max(dim=1)
-            pred_best_iou = (pred_best_iou > self.ignore_thre)
+            pred_best_iou = pred_best_iou > self.ignore_thre
             pred_best_iou = pred_best_iou.view(pred[b].shape[:3])
             # set mask to zero (ignore) if pred matches truth
-            obj_mask[b] = ~ pred_best_iou
+            obj_mask[b] = ~pred_best_iou
 
             for ti in range(best_n.shape[0]):
                 if best_n_mask[ti] == 1:
@@ -221,15 +262,25 @@ class Yolo_loss(nn.Module):
                     a = best_n[ti]
                     obj_mask[b, a, j, i] = 1
                     tgt_mask[b, a, j, i, :] = 1
-                    target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[b, ti].to(torch.int16).to(torch.float)
-                    target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[b, ti].to(torch.int16).to(torch.float)
+                    target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[b, ti].to(torch.int16).to(
+                        torch.float
+                    )
+                    target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[b, ti].to(torch.int16).to(
+                        torch.float
+                    )
                     target[b, a, j, i, 2] = torch.log(
-                        truth_w_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 0] + 1e-16)
+                        truth_w_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 0]
+                        + 1e-16
+                    )
                     target[b, a, j, i, 3] = torch.log(
-                        truth_h_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 1] + 1e-16)
+                        truth_h_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 1]
+                        + 1e-16
+                    )
                     target[b, a, j, i, 4] = 1
                     target[b, a, j, i, 5 + labels[b, ti, 4].to(torch.int16).cpu().numpy()] = 1
-                    tgt_scale[b, a, j, i, :] = torch.sqrt(2 - truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize)
+                    tgt_scale[b, a, j, i, :] = torch.sqrt(
+                        2 - truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize
+                    )
         return obj_mask, tgt_mask, tgt_scale, target
 
     def forward(self, xin, labels=None):
@@ -251,7 +302,9 @@ class Yolo_loss(nn.Module):
             pred[..., 2] = torch.exp(pred[..., 2]) * self.anchor_w[output_id]
             pred[..., 3] = torch.exp(pred[..., 3]) * self.anchor_h[output_id]
 
-            obj_mask, tgt_mask, tgt_scale, target = self.build_target(pred, labels, batchsize, fsize, n_ch, output_id)
+            obj_mask, tgt_mask, tgt_scale, target = self.build_target(
+                pred, labels, batchsize, fsize, n_ch, output_id
+            )
 
             # loss calculation
             output[..., 4] *= obj_mask
@@ -262,12 +315,13 @@ class Yolo_loss(nn.Module):
             target[..., np.r_[0:4, 5:n_ch]] *= tgt_mask
             target[..., 2:4] *= tgt_scale
 
-            loss_xy += F.binary_cross_entropy(input=output[..., :2], target=target[..., :2],
-                                              weight=tgt_scale * tgt_scale, reduction='sum')
-            loss_wh += F.mse_loss(input=output[..., 2:4], target=target[..., 2:4], reduction='sum') / 2
-            loss_obj += F.binary_cross_entropy(input=output[..., 4], target=target[..., 4], reduction='sum')
-            loss_cls += F.binary_cross_entropy(input=output[..., 5:], target=target[..., 5:], reduction='sum')
-            loss_l2 += F.mse_loss(input=output, target=target, reduction='sum')
+            loss_xy += F.binary_cross_entropy(
+                input=output[..., :2], target=target[..., :2], weight=tgt_scale * tgt_scale, reduction="sum"
+            )
+            loss_wh += F.mse_loss(input=output[..., 2:4], target=target[..., 2:4], reduction="sum") / 2
+            loss_obj += F.binary_cross_entropy(input=output[..., 4], target=target[..., 4], reduction="sum")
+            loss_cls += F.binary_cross_entropy(input=output[..., 5:], target=target[..., 5:], reduction="sum")
+            loss_l2 += F.mse_loss(input=output, target=target, reduction="sum")
 
         loss = loss_xy + loss_wh + loss_obj + loss_cls
 
@@ -295,22 +349,39 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
     n_train = len(train_dataset)
     n_val = len(val_dataset)
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch // config.subdivisions, shuffle=True,
-                              num_workers=8, pin_memory=True, drop_last=True, collate_fn=collate)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config.batch // config.subdivisions,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=collate,
+    )
 
-    val_loader = DataLoader(val_dataset, batch_size=config.batch // config.subdivisions, shuffle=True, num_workers=8,
-                            pin_memory=True, drop_last=True, collate_fn=val_collate)
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config.batch // config.subdivisions,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=val_collate,
+    )
 
-    writer = SummaryWriter(log_dir=config.TRAIN_TENSORBOARD_DIR,
-                           filename_suffix=f'OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}',
-                           comment=f'OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}')
+    writer = SummaryWriter(
+        log_dir=config.TRAIN_TENSORBOARD_DIR,
+        filename_suffix=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}",
+        comment=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}",
+    )
     # writer.add_images('legend',
     #                   torch.from_numpy(train_dataset.label2colorlegend2(cfg.DATA_CLASSES).transpose([2, 0, 1])).to(
     #                       device).unsqueeze(0))
     max_itr = config.TRAIN_EPOCHS * n_train
     # global_step = cfg.TRAIN_MINEPOCH * n_train
     global_step = 0
-    logging.info(f'''Starting training:
+    logging.info(
+        f"""Starting training:
         Epochs:          {epochs}
         Batch size:      {config.batch}
         Subdivisions:    {config.subdivisions}
@@ -324,7 +395,8 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
         Dataset classes: {config.classes}
         Train label path:{config.train_label}
         Pretrained:
-    ''')
+    """
+    )
 
     # learning rate setup
     def burnin_schedule(i):
@@ -338,14 +410,14 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
             factor = 0.01
         return factor
 
-    if config.TRAIN_OPTIMIZER.lower() == 'adam':
+    if config.TRAIN_OPTIMIZER.lower() == "adam":
         optimizer = optim.Adam(
             model.parameters(),
             lr=config.learning_rate / config.batch,
             betas=(0.9, 0.999),
             eps=1e-08,
         )
-    elif config.TRAIN_OPTIMIZER.lower() == 'sgd':
+    elif config.TRAIN_OPTIMIZER.lower() == "sgd":
         optimizer = optim.SGD(
             params=model.parameters(),
             lr=config.learning_rate / config.batch,
@@ -358,7 +430,7 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
     # scheduler = ReduceLROnPlateau(optimizer, mode='max', verbose=True, patience=6, min_lr=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, 0.001, 1e-6, 20)
 
-    save_prefix = 'Yolov4_epoch'
+    save_prefix = "Yolov4_epoch"
     saved_models = deque()
     model.train()
     for epoch in range(epochs):
@@ -366,7 +438,7 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
         epoch_loss = 0
         epoch_step = 0
 
-        with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img', ncols=50) as pbar:
+        with tqdm(total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img", ncols=50) as pbar:
             for i, batch in enumerate(train_loader):
                 global_step += 1
                 epoch_step += 1
@@ -389,26 +461,37 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
                     model.zero_grad()
 
                 if global_step % (log_step * config.subdivisions) == 0:
-                    writer.add_scalar('train/Loss', loss.item(), global_step)
-                    writer.add_scalar('train/loss_xy', loss_xy.item(), global_step)
-                    writer.add_scalar('train/loss_wh', loss_wh.item(), global_step)
-                    writer.add_scalar('train/loss_obj', loss_obj.item(), global_step)
-                    writer.add_scalar('train/loss_cls', loss_cls.item(), global_step)
-                    writer.add_scalar('train/loss_l2', loss_l2.item(), global_step)
-                    writer.add_scalar('lr', scheduler.get_lr()[0] * config.batch, global_step)
-                    pbar.set_postfix(**{'loss (batch)': loss.item(), 'loss_xy': loss_xy.item(),
-                                        'loss_wh': loss_wh.item(),
-                                        'loss_obj': loss_obj.item(),
-                                        'loss_cls': loss_cls.item(),
-                                        'loss_l2': loss_l2.item(),
-                                        'lr': scheduler.get_lr()[0] * config.batch
-                                        })
-                    logging.debug('Train step_{}: loss : {},loss xy : {},loss wh : {},'
-                                  'loss obj : {}，loss cls : {},loss l2 : {},lr : {}'
-                                  .format(global_step, loss.item(), loss_xy.item(),
-                                          loss_wh.item(), loss_obj.item(),
-                                          loss_cls.item(), loss_l2.item(),
-                                          scheduler.get_lr()[0] * config.batch))
+                    writer.add_scalar("train/Loss", loss.item(), global_step)
+                    writer.add_scalar("train/loss_xy", loss_xy.item(), global_step)
+                    writer.add_scalar("train/loss_wh", loss_wh.item(), global_step)
+                    writer.add_scalar("train/loss_obj", loss_obj.item(), global_step)
+                    writer.add_scalar("train/loss_cls", loss_cls.item(), global_step)
+                    writer.add_scalar("train/loss_l2", loss_l2.item(), global_step)
+                    writer.add_scalar("lr", scheduler.get_lr()[0] * config.batch, global_step)
+                    pbar.set_postfix(
+                        **{
+                            "loss (batch)": loss.item(),
+                            "loss_xy": loss_xy.item(),
+                            "loss_wh": loss_wh.item(),
+                            "loss_obj": loss_obj.item(),
+                            "loss_cls": loss_cls.item(),
+                            "loss_l2": loss_l2.item(),
+                            "lr": scheduler.get_lr()[0] * config.batch,
+                        }
+                    )
+                    logging.debug(
+                        "Train step_{}: loss : {},loss xy : {},loss wh : {},"
+                        "loss obj : {}，loss cls : {},loss l2 : {},lr : {}".format(
+                            global_step,
+                            loss.item(),
+                            loss_xy.item(),
+                            loss_wh.item(),
+                            loss_obj.item(),
+                            loss_cls.item(),
+                            loss_l2.item(),
+                            scheduler.get_lr()[0] * config.batch,
+                        )
+                    )
 
                 pbar.update(images.shape[0])
 
@@ -425,51 +508,50 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
             evaluator = evaluate(eval_model, val_loader, config, device)
             del eval_model
 
-            stats = evaluator.coco_eval['bbox'].stats
-            writer.add_scalar('train/AP', stats[0], global_step)
-            writer.add_scalar('train/AP50', stats[1], global_step)
-            writer.add_scalar('train/AP75', stats[2], global_step)
-            writer.add_scalar('train/AP_small', stats[3], global_step)
-            writer.add_scalar('train/AP_medium', stats[4], global_step)
-            writer.add_scalar('train/AP_large', stats[5], global_step)
-            writer.add_scalar('train/AR1', stats[6], global_step)
-            writer.add_scalar('train/AR10', stats[7], global_step)
-            writer.add_scalar('train/AR100', stats[8], global_step)
-            writer.add_scalar('train/AR_small', stats[9], global_step)
-            writer.add_scalar('train/AR_medium', stats[10], global_step)
-            writer.add_scalar('train/AR_large', stats[11], global_step)
+            stats = evaluator.coco_eval["bbox"].stats
+            writer.add_scalar("train/AP", stats[0], global_step)
+            writer.add_scalar("train/AP50", stats[1], global_step)
+            writer.add_scalar("train/AP75", stats[2], global_step)
+            writer.add_scalar("train/AP_small", stats[3], global_step)
+            writer.add_scalar("train/AP_medium", stats[4], global_step)
+            writer.add_scalar("train/AP_large", stats[5], global_step)
+            writer.add_scalar("train/AR1", stats[6], global_step)
+            writer.add_scalar("train/AR10", stats[7], global_step)
+            writer.add_scalar("train/AR100", stats[8], global_step)
+            writer.add_scalar("train/AR_small", stats[9], global_step)
+            writer.add_scalar("train/AR_medium", stats[10], global_step)
+            writer.add_scalar("train/AR_large", stats[11], global_step)
 
             if save_cp:
                 try:
                     # os.mkdir(config.checkpoints)
                     os.makedirs(config.checkpoints, exist_ok=True)
-                    logging.info('Created checkpoint directory')
+                    logging.info("Created checkpoint directory")
                 except OSError:
                     pass
-                save_path = os.path.join(config.checkpoints, f'{save_prefix}{epoch + 1}.pth')
+                save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
                 torch.save(model.state_dict(), save_path)
-                logging.info(f'Checkpoint {epoch + 1} saved !')
+                logging.info(f"Checkpoint {epoch + 1} saved !")
                 saved_models.append(save_path)
                 if len(saved_models) > config.keep_checkpoint_max > 0:
                     model_to_remove = saved_models.popleft()
                     try:
                         os.remove(model_to_remove)
                     except:
-                        logging.info(f'failed to remove {model_to_remove}')
+                        logging.info(f"failed to remove {model_to_remove}")
 
     writer.close()
 
 
 @torch.no_grad()
 def evaluate(model, data_loader, cfg, device, logger=None, **kwargs):
-    """ finished, tested
-    """
+    """finished, tested"""
     # cpu_device = torch.device("cpu")
     model.eval()
     # header = 'Test:'
 
-    coco = convert_to_coco_api(data_loader.dataset, bbox_fmt='coco')
-    coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
+    coco = convert_to_coco_api(data_loader.dataset, bbox_fmt="coco")
+    coco_evaluator = CocoEvaluator(coco, iou_types=["bbox"], bbox_fmt="coco")
 
     for images, targets in data_loader:
         model_input = [[cv2.resize(img, (cfg.w, cfg.h))] for img in images]
@@ -494,11 +576,11 @@ def evaluate(model, data_loader, cfg, device, logger=None, **kwargs):
             img_height, img_width = img.shape[:2]
             # boxes = output[...,:4].copy()  # output boxes in yolo format
             boxes = boxes.squeeze(2).cpu().detach().numpy()
-            boxes[...,2:] = boxes[...,2:] - boxes[...,:2] # Transform [x1, y1, x2, y2] to [x1, y1, w, h]
-            boxes[...,0] = boxes[...,0]*img_width
-            boxes[...,1] = boxes[...,1]*img_height
-            boxes[...,2] = boxes[...,2]*img_width
-            boxes[...,3] = boxes[...,3]*img_height
+            boxes[..., 2:] = boxes[..., 2:] - boxes[..., :2]  # Transform [x1, y1, x2, y2] to [x1, y1, w, h]
+            boxes[..., 0] = boxes[..., 0] * img_width
+            boxes[..., 1] = boxes[..., 1] * img_height
+            boxes[..., 2] = boxes[..., 2] * img_width
+            boxes[..., 3] = boxes[..., 3] * img_height
             boxes = torch.as_tensor(boxes, dtype=torch.float32)
             # confs = output[...,4:].copy()
             confs = confs.cpu().detach().numpy()
@@ -527,33 +609,45 @@ def evaluate(model, data_loader, cfg, device, logger=None, **kwargs):
 
 def get_args(**kwargs):
     cfg = kwargs
-    parser = argparse.ArgumentParser(description='Train the Model on images and target masks',
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description="Train the Model on images and target masks",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     # parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=2,
     #                     help='Batch size', dest='batchsize')
-    parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, nargs='?', default=0.001,
-                        help='Learning rate', dest='learning_rate')
-    parser.add_argument('-f', '--load', dest='load', type=str, default=None,
-                        help='Load model from a .pth file')
-    parser.add_argument('-g', '--gpu', metavar='G', type=str, default='-1',
-                        help='GPU', dest='gpu')
-    parser.add_argument('-dir', '--data-dir', type=str, default=None,
-                        help='dataset dir', dest='dataset_dir')
-    parser.add_argument('-pretrained', type=str, default=None, help='pretrained yolov4.conv.137')
-    parser.add_argument('-classes', type=int, default=80, help='dataset classes')
-    parser.add_argument('-train_label_path', dest='train_label', type=str, default='train.txt', help="train label path")
     parser.add_argument(
-        '-optimizer', type=str, default='adam',
-        help='training optimizer',
-        dest='TRAIN_OPTIMIZER')
+        "-l",
+        "--learning-rate",
+        metavar="LR",
+        type=float,
+        nargs="?",
+        default=0.001,
+        help="Learning rate",
+        dest="learning_rate",
+    )
     parser.add_argument(
-        '-iou-type', type=str, default='iou',
-        help='iou type (iou, giou, diou, ciou)',
-        dest='iou_type')
+        "-f", "--load", dest="load", type=str, default=None, help="Load model from a .pth file"
+    )
+    parser.add_argument("-g", "--gpu", metavar="G", type=str, default="-1", help="GPU", dest="gpu")
+    parser.add_argument("-dir", "--data-dir", type=str, default=None, help="dataset dir", dest="dataset_dir")
+    parser.add_argument("-pretrained", type=str, default=None, help="pretrained yolov4.conv.137")
+    parser.add_argument("-classes", type=int, default=80, help="dataset classes")
     parser.add_argument(
-        '-keep-checkpoint-max', type=int, default=10,
-        help='maximum number of checkpoints to keep. If set 0, all checkpoints will be kept',
-        dest='keep_checkpoint_max')
+        "-train_label_path", dest="train_label", type=str, default="train.txt", help="train label path"
+    )
+    parser.add_argument(
+        "-optimizer", type=str, default="adam", help="training optimizer", dest="TRAIN_OPTIMIZER"
+    )
+    parser.add_argument(
+        "-iou-type", type=str, default="iou", help="iou type (iou, giou, diou, ciou)", dest="iou_type"
+    )
+    parser.add_argument(
+        "-keep-checkpoint-max",
+        type=int,
+        default=10,
+        help="maximum number of checkpoints to keep. If set 0, all checkpoints will be kept",
+        dest="keep_checkpoint_max",
+    )
     args = vars(parser.parse_args())
 
     # for k in args.keys():
@@ -563,52 +657,50 @@ def get_args(**kwargs):
     return edict(cfg)
 
 
-def init_logger(log_file=None, log_dir=None, log_level=logging.INFO, mode='w', stdout=True):
+def init_logger(log_file=None, log_dir=None, log_level=logging.INFO, mode="w", stdout=True):
     """
     log_dir: 日志文件的文件夹路径
     mode: 'a', append; 'w', 覆盖原文件写入.
     """
+
     def get_date_str():
         now = datetime.datetime.now()
-        return now.strftime('%Y-%m-%d_%H-%M-%S')
+        return now.strftime("%Y-%m-%d_%H-%M-%S")
 
-    fmt = '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s: %(message)s'
+    fmt = "%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s: %(message)s"
     if log_dir is None:
-        log_dir = '~/temp/log/'
+        log_dir = "~/temp/log/"
     if log_file is None:
-        log_file = 'log_' + get_date_str() + '.txt'
+        log_file = "log_" + get_date_str() + ".txt"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     log_file = os.path.join(log_dir, log_file)
     # 此处不能使用logging输出
-    print('log file path:' + log_file)
+    print("log file path:" + log_file)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format=fmt,
-                        filename=log_file,
-                        filemode=mode)
+    logging.basicConfig(level=logging.DEBUG, format=fmt, filename=log_file, filemode=mode)
 
     if stdout:
         console = logging.StreamHandler(stream=sys.stdout)
         console.setLevel(log_level)
         formatter = logging.Formatter(fmt)
         console.setFormatter(formatter)
-        logging.getLogger('').addHandler(console)
+        logging.getLogger("").addHandler(console)
 
     return logging
 
 
 def _get_date_str():
     now = datetime.datetime.now()
-    return now.strftime('%Y-%m-%d_%H-%M')
+    return now.strftime("%Y-%m-%d_%H-%M")
 
 
 if __name__ == "__main__":
-    logging = init_logger(log_dir='log')
+    logging = init_logger(log_dir="log")
     cfg = get_args(**Cfg)
     os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpu
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logging.info(f'Using device {device}')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device {device}")
 
     if cfg.use_darknet_cfg:
         model = Darknet(cfg.cfgfile)
@@ -620,13 +712,15 @@ if __name__ == "__main__":
     model.to(device=device)
 
     try:
-        train(model=model,
-              config=cfg,
-              epochs=cfg.TRAIN_EPOCHS,
-              device=device, )
+        train(
+            model=model,
+            config=cfg,
+            epochs=cfg.TRAIN_EPOCHS,
+            device=device,
+        )
     except KeyboardInterrupt:
-        torch.save(model.state_dict(), 'INTERRUPTED.pth')
-        logging.info('Saved interrupt')
+        torch.save(model.state_dict(), "INTERRUPTED.pth")
+        logging.info("Saved interrupt")
         try:
             sys.exit(0)
         except SystemExit:

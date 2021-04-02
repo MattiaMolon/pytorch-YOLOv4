@@ -5,14 +5,14 @@ from typing import List
 import numpy as np
 
 
-def yolo_BEV_forward(
+def yolo_BEV_grid_forward(
     prediction: torch.Tensor,
     stride: int,
     num_anchors: int,
     num_classes: int,
     smallest_stride: int = 8,
 ) -> torch.Tensor:
-    """forward pass of Yolo_BEV, return all predicted bounding boxes in the BEV space
+    """forward pass of Yolo_BEV_grid, return all predicted bounding boxes in the BEV space
 
     Args:
         prediction (torch.Tensor): prediction from the last convolutional layer
@@ -66,8 +66,8 @@ def yolo_BEV_forward(
     return prediction
 
 
-class YoloBEVLayer(nn.Module):
-    """Yolo BEV layer
+class YoloBEVGridLayer(nn.Module):
+    """Yolo BEV grid layer
     read the last convolutional layer and return the bboxes in the BEV space
     """
 
@@ -78,7 +78,7 @@ class YoloBEVLayer(nn.Module):
         stride=32,
         model_out=False,
     ):
-        super(YoloBEVLayer, self).__init__()
+        super(YoloBEVGridLayer, self).__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
         self.coord_scale = 1
@@ -98,4 +98,4 @@ class YoloBEVLayer(nn.Module):
             return output
 
         print("WARNING: durign inference all feature maps are rescaled to stride 8")
-        return yolo_BEV_forward(output, self.stride, self.num_anchors, self.num_classes)
+        return yolo_BEV_grid_forward(output, self.stride, self.num_anchors, self.num_classes)

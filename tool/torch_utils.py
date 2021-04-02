@@ -101,7 +101,10 @@ def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1):
     print("      Model Inference : %f" % (t2 - t1))
     print("-----------------------------------")
 
-    if not model.is_BEV:
+    if model.model_type == "Yolov4":
         return utils.post_processing(img, obj_thresh, nms_thresh, output)
+    elif model.model_type == "BEV_grid":
+        return utils.post_processing_BEV_grid(output, obj_thresh, nms_thresh)
     else:
-        return utils.post_processing_BEV(output, obj_thresh, nms_thresh)
+        print("model type not recognized")
+        quit(1)
