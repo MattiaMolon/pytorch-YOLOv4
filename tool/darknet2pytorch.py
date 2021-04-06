@@ -5,6 +5,7 @@ import numpy as np
 from tool.region_loss import RegionLoss
 from tool.yolo_layer import YoloLayer
 from tool.yolo_BEV_grid_layer import YoloBEVGridLayer
+from tool.yolo_BEV_flat_layer import YoloBEVFlatLayer
 from tool.config import *
 from tool.torch_utils import *
 from typing import List
@@ -118,6 +119,7 @@ class Darknet(nn.Module):
         self.height = int(self.blocks[0]["height"])
         self.cell_depth = int(self.blocks[0]["cell_depth"])
         self.cell_angle = float(self.blocks[0]["cell_angle"])
+        # anchors are defined [W,H] for Yolov4 and [H,W] for other models
         self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
         self.num_anchors = int(self.blocks[0]["num"])
 
@@ -139,7 +141,7 @@ class Darknet(nn.Module):
             x (np.ndarray): batch of images
 
         Returns:
-            torch.Tensor: bounding boxes prediction for the biggest feature map
+            torch.Tensor: bounding boxes predictions
         """
 
         ind = -2
@@ -207,15 +209,19 @@ class Darknet(nn.Module):
                 print("unknown type %s" % (block["type"]))
 
         if self.training:
+            # if Yolov4 or BEV_grid
             # out_boxes = [predictions_stride_8,
             #              predictions_stride_16,
             #              predictions_stride_32]
+            #
+            # if BEV_flat
+            # out_boxes = [predictions last layer]
             return out_boxes
         else:
             if self.model_type == "Yolov4":
                 return get_region_boxes(out_boxes)
 
-            elif self.model_type == "BEV_grid":
+            elif self.model_type in ["BEV_grid", "BEV_flat"]:
                 # out_boxes = [x on stride 8,
                 #             y on stride 8,
                 #             exp(w),
@@ -226,13 +232,13 @@ class Darknet(nn.Module):
                 #             ... class confs,
                 #             ]
                 # transform out_boxes to BEV dimensions such that we can compare them with gt
-                return self.from_BEV_grid_to_BEV(out_boxes)
+                return self.transform_pred_to_BEV(out_boxes)
 
             else:
                 print("model type not recognized")
                 quit(1)
 
-    def from_BEV_grid_to_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
+    def transform_pred_to_BEV(self, out_boxes: torch.Tensor) -> torch.Tensor:
         """Transform out_boxes from biggest feature map space into BEV space
 
         Args:
@@ -392,6 +398,14 @@ class Darknet(nn.Module):
                     yolo_layer.scale_x_y = float(block["scale_x_y"])
                     out_filters.append(prev_filters)
                     out_strides.append(prev_stride)
+                    model.append(yolo_layer)
+
+                elif self.model_type == "BEV_flat":  # BEV flat layer
+                    yolo_layer = YoloBEVFlatLayer()
+                    yolo_layer.num_classes = int(block["classes"])
+                    self.num_classes = yolo_layer.num_classes
+                    yolo_layer.num_predictors = int(block["num_predictors"])
+                    yolo_layer.num_anchors = self.num_anchors
                     model.append(yolo_layer)
 
                 elif self.model_type == "Yolov4":  # Classic Yolo layer

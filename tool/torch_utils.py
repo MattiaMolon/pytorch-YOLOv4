@@ -106,5 +106,5 @@ def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1):
     elif model.model_type == "BEV_grid":
         return utils.post_processing_BEV_grid(output, obj_thresh, nms_thresh)
     else:
-        print("model type not recognized")
+        print("model type not recognized in do_detect()")
         quit(1)

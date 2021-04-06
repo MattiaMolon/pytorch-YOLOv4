@@ -19,12 +19,11 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
     """
 
     # load model
-    m = Darknet(cfgfile, model_type="BEV_grid")
-    m.print_network()
+    m = Darknet(cfgfile, model_type="BEV_flat")
+    # m.print_network()
 
-    quit(0)
-    m.load_weights(weightfile, cut_off=128)
-    print("Loading weights from %s... Done!" % (weightfile))
+    # m.load_weights(weightfile, cut_off=128)
+    # print("Loading weights from %s... Done!" % (weightfile))
 
     # push to GPU
     if use_cuda:
