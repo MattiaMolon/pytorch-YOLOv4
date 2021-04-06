@@ -9,8 +9,8 @@ import argparse
 use_cuda = False
 
 
-def detect_BEV(cfgfile, weightfile, imgfile):
-    """Detect elements in BEV map with yolov4_BEV
+def detect_BEV_flat(cfgfile, weightfile, imgfile):
+    """Detect elements in BEV map with yolov4_BEV_flat
 
     Args:
         cfgfile (str): Path to .cfg file
@@ -21,6 +21,8 @@ def detect_BEV(cfgfile, weightfile, imgfile):
     # load model
     m = Darknet(cfgfile, model_type="BEV_grid")
     m.print_network()
+
+    quit(0)
     m.load_weights(weightfile, cut_off=128)
     print("Loading weights from %s... Done!" % (weightfile))
 
@@ -55,7 +57,7 @@ def get_args():
     parser.add_argument(
         "-cfgfile",
         type=str,
-        default="./cfg/model/yolov4_BEV_grid.cfg",
+        default="./cfg/model/yolov4_BEV_flat.cfg",
         help="path of cfg file",
         dest="cfgfile",
     )
@@ -80,4 +82,4 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    detect_BEV(args.cfgfile, args.weightfile, args.imgfile)
+    detect_BEV_flat(args.cfgfile, args.weightfile, args.imgfile)

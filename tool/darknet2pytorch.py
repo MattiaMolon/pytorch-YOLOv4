@@ -162,15 +162,8 @@ class Darknet(nn.Module):
                 layers = block["layers"].split(",")
                 layers = [int(i) if int(i) > 0 else int(i) + ind for i in layers]
                 if len(layers) == 1:
-                    if "groups" not in block.keys() or int(block["groups"]) == 1:
-                        x = outputs[layers[0]]
-                        outputs[ind] = x
-                    else:
-                        groups = int(block["groups"])
-                        group_id = int(block["group_id"])
-                        _, b, _, _ = outputs[layers[0]].shape
-                        x = outputs[layers[0]][:, b // groups * group_id : b // groups * (group_id + 1)]
-                        outputs[ind] = x
+                    x = outputs[layers[0]]
+                    outputs[ind] = x
                 elif len(layers) == 2:
                     x1 = outputs[layers[0]]
                     x2 = outputs[layers[1]]
@@ -282,10 +275,17 @@ class Darknet(nn.Module):
                 conv_id += 1
                 batch_normalize = int(block["batch_normalize"])
                 filters = int(block["filters"])
-                kernel_size = int(block["size"])
-                stride = int(block["stride"])
                 is_pad = int(block["pad"])
-                pad = (kernel_size - 1) // 2 if is_pad else 0  # padding is defined as size/2 in yolo wiki
+                stride = int(block["stride"])
+                kernel_size = [int(x) for x in block["size"].strip().split(",")]
+                if len(kernel_size) == 2:  # When this happens kernel size must be odd in both dimensions
+                    kernel_size = (kernel_size[0], kernel_size[1])  # pytorch convention H x W
+                    pad = ((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2) if is_pad else 0
+                else:
+                    kernel_size = (kernel_size[0], kernel_size[0])
+                    pad = (
+                        (kernel_size[0] - 1) // 2 if is_pad else 0
+                    )  # padding is defined as size/2 in yolo wiki
                 activation = block["activation"]
 
                 # add convolutional layer
@@ -351,12 +351,8 @@ class Darknet(nn.Module):
                 ind = len(model)
                 layers = [int(i) if int(i) > 0 else int(i) + ind for i in layers]
                 if len(layers) == 1:
-                    if "groups" not in block.keys() or int(block["groups"]) == 1:
-                        prev_filters = out_filters[layers[0]]
-                        prev_stride = out_strides[layers[0]]
-                    else:
-                        prev_filters = out_filters[layers[0]] // int(block["groups"])
-                        prev_stride = out_strides[layers[0]] // int(block["groups"])
+                    prev_filters = out_filters[layers[0]]
+                    prev_stride = out_strides[layers[0]]
                 elif len(layers) == 2:
                     assert layers[0] == ind - 1 or layers[1] == ind - 1
                     prev_filters = out_filters[layers[0]] + out_filters[layers[1]]
@@ -386,7 +382,7 @@ class Darknet(nn.Module):
                 model.append(EmptyModule())
 
             elif block["type"] == "yolo":
-                if self.model_type == "BEV_grid":  # my BEV layer
+                if self.model_type == "BEV_grid":  # BEV grid layer
                     # TODO: go through this code and remove unneccessary parameters
                     yolo_layer = YoloBEVGridLayer()
                     yolo_layer.num_classes = int(block["classes"])
@@ -415,8 +411,7 @@ class Darknet(nn.Module):
                     model.append(yolo_layer)
 
                 else:
-                    print("model type not recognized!")
-                    quit(1)
+                    print("model type not recognized while building yolo layer!")
 
             else:
                 print("unknown type %s" % (block["type"]))

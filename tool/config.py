@@ -69,26 +69,32 @@ def print_cfg(blocks):
 
         elif block["type"] == "convolutional":
             filters = int(block["filters"])
-            kernel_size = int(block["size"])
+            kernel_size = [int(x) for x in block["size"].strip().split(",")]
             stride = int(block["stride"])
             is_pad = int(block["pad"])
-            pad = (kernel_size - 1) // 2 if is_pad else 0
-            width = (prev_width + 2 * pad - kernel_size) // stride + 1
-            height = (prev_height + 2 * pad - kernel_size) // stride + 1
+            if len(kernel_size) == 2:
+                kernel_size = (kernel_size[0], kernel_size[1])
+                pad = ((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2) if is_pad else (0, 0)
+            else:
+                kernel_size = (kernel_size[0], kernel_size[0])
+                # padding is defined as size-1/2 in yolo wiki
+                pad = ((kernel_size[0] - 1) // 2, (kernel_size[0] - 1) // 2) if is_pad else (0, 0)
+            width = (prev_width + 2 * pad[1] - kernel_size[1]) // stride + 1
+            height = (prev_height + 2 * pad[0] - kernel_size[0]) // stride + 1
             print(
                 "%5d %-6s %4d  %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d"
                 % (
                     ind,
                     "conv",
                     filters,
-                    kernel_size,
-                    kernel_size,
+                    kernel_size[0],
+                    kernel_size[1],
                     stride,
-                    prev_width,
                     prev_height,
+                    prev_width,
                     prev_filters,
-                    width,
                     height,
+                    width,
                     filters,
                 )
             )
@@ -112,11 +118,11 @@ def print_cfg(blocks):
                     pool_size,
                     pool_size,
                     stride,
-                    prev_width,
                     prev_height,
+                    prev_width,
                     prev_filters,
-                    width,
                     height,
+                    width,
                     filters,
                 )
             )
@@ -138,11 +144,11 @@ def print_cfg(blocks):
                     ind,
                     "upsample",
                     stride,
-                    prev_width,
                     prev_height,
+                    prev_width,
                     prev_filters,
-                    width,
                     height,
+                    width,
                     filters,
                 )
             )
@@ -169,23 +175,12 @@ def print_cfg(blocks):
                 assert prev_height == out_heights[layers[1]]
                 prev_filters = out_filters[layers[0]] + out_filters[layers[1]]
             elif len(layers) == 4:
-                print(
-                    "%5d %-6s %d %d %d %d"
-                    % (ind, "route", layers[0], layers[1], layers[2], layers[3])
-                )
+                print("%5d %-6s %d %d %d %d" % (ind, "route", layers[0], layers[1], layers[2], layers[3]))
                 prev_width = out_widths[layers[0]]
                 prev_height = out_heights[layers[0]]
+                assert prev_width == out_widths[layers[1]] == out_widths[layers[2]] == out_widths[layers[3]]
                 assert (
-                    prev_width
-                    == out_widths[layers[1]]
-                    == out_widths[layers[2]]
-                    == out_widths[layers[3]]
-                )
-                assert (
-                    prev_height
-                    == out_heights[layers[1]]
-                    == out_heights[layers[2]]
-                    == out_heights[layers[3]]
+                    prev_height == out_heights[layers[1]] == out_heights[layers[2]] == out_heights[layers[3]]
                 )
                 prev_filters = (
                     out_filters[layers[0]]
@@ -233,9 +228,7 @@ def load_conv(buf, start, conv_model):
     conv_model.bias.data.copy_(torch.from_numpy(buf[start : start + num_b]))
     start = start + num_b
     conv_model.weight.data.copy_(
-        torch.from_numpy(buf[start : start + num_w]).reshape(
-            conv_model.weight.data.shape
-        )
+        torch.from_numpy(buf[start : start + num_w]).reshape(conv_model.weight.data.shape)
     )
     start = start + num_w
     return start
@@ -262,9 +255,7 @@ def load_conv_bn(buf, start, conv_model, bn_model):
     bn_model.running_var.copy_(torch.from_numpy(buf[start : start + num_b]))
     start = start + num_b
     conv_model.weight.data.copy_(
-        torch.from_numpy(buf[start : start + num_w]).reshape(
-            conv_model.weight.data.shape
-        )
+        torch.from_numpy(buf[start : start + num_w]).reshape(conv_model.weight.data.shape)
     )
     start = start + num_w
     return start
