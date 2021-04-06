@@ -19,7 +19,7 @@ from tensorboardX import SummaryWriter
 from easydict import EasyDict as edict
 
 from dataset import Yolo_dataset
-from cfg.train.cfg_yolov4_BEV import Cfg
+from cfg.train.cfg_yolov4_BEV_grid import Cfg
 from models import Yolov4
 
 from tool.darknet2pytorch import Darknet
@@ -986,7 +986,7 @@ if __name__ == "__main__":
     logging.info(f"Using device {device}")
 
     # load model and push to device
-    model = Darknet(cfg.cfgfile)
+    model = Darknet(cfg.cfgfile, model_type="BEV_grid")
     if torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
     model.to(device=device)

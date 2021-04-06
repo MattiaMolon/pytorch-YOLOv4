@@ -103,8 +103,8 @@ def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1):
 
     if model.model_type == "Yolov4":
         return utils.post_processing(img, obj_thresh, nms_thresh, output)
-    elif model.model_type == "BEV_grid":
-        return utils.post_processing_BEV_grid(output, obj_thresh, nms_thresh)
+    elif model.model_type in ["BEV_grid", "BEV_flat"]:
+        return utils.nms_BEV(output, obj_thresh, nms_thresh, iou_type="rgIoU")
     else:
         print("model type not recognized in do_detect()")
         quit(1)

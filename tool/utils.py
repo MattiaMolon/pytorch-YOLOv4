@@ -385,7 +385,7 @@ def post_processing(img, conf_thresh, nms_thresh, output):
     return bboxes_batch
 
 
-def post_processing_BEV_grid(
+def nms_BEV(
     prediction: torch.Tensor,
     obj_thresh: float = 0.3,
     nms_thresh: float = 0.6,
@@ -396,7 +396,7 @@ def post_processing_BEV_grid(
 
     Args:
         prediction (torch.Tensor): output of yolov4_BEV
-        conf_thresh (float): confidence trashold for detection. Default = 0.3
+        obj_thresh (float): confidence trashold for detection. Default = 0.3
         nms_thresh (float): nms treshold for rgIoU. Default = 0.7
         verbose (bool): verbose if True. Default = False
         iou_type (str): type of iou to use during NMS. Default = 'IoU'
@@ -424,7 +424,10 @@ def post_processing_BEV_grid(
     for batch_id, sample_pred in tqdm(enumerate(prediction[:]), desc="Batch"):
 
         # instead of using all the classes, I substitute with max_conf and max_conf_idx
-        max_conf, max_conf_idx = torch.max(sample_pred[:, 7:], 1)
+        if len(sample_pred[0]) > 7:
+            max_conf, max_conf_idx = torch.max(sample_pred[:, 7:], 1)
+        else:
+            max_conf, max_conf_idx = torch.max(sample_pred[:, 6].view(-1, 1), 1)
         max_conf = max_conf.float().unsqueeze(1)
         max_conf_idx = max_conf_idx.float().unsqueeze(1)
         sample_pred = torch.cat((sample_pred[:, :7], max_conf, max_conf_idx), dim=1)

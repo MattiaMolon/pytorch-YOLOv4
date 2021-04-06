@@ -8,11 +8,13 @@
 ## Yolov4_BEV_grid
 - [x] Build structure
 - [X] Implement forward pass
-- [ ] loss implementation
+- [ ] Training loop
+- [ ] Loss implementation
 - [ ] BEV visualization integration
 
 ## Yolov4_BEV_flat
-- [ ] Build structure
-- [ ] Implement forward pass
-- [ ] loss implementation
+- [x] Build structure
+- [x] Implement forward pass
+- [ ] Training loop
+- [ ] Loss implementation
 - [ ] BEV visualization integration

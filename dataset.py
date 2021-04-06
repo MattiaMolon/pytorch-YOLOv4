@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 @Time          : 2020/05/06 21:09
 @Author        : Tianxiaomo
 @File          : dataset.py
@@ -9,16 +9,21 @@
     @Time      :
     @Detail    :
 
-'''
+"""
 import os
 import random
 import sys
+from typing import Tuple
 
 import cv2
 import numpy as np
+from numpy.lib.financial import ipmt
+import pandas as pd
 
 import torch
 from torch.utils.data.dataset import Dataset
+from easydict import EasyDict as edict
+import matplotlib.pyplot as plt
 
 
 def rand_uniform_strong(min, max):
@@ -33,7 +38,7 @@ def rand_scale(s):
     scale = rand_uniform_strong(1, s)
     if random.randint(0, 1) % 2:
         return scale
-    return 1. / scale
+    return 1.0 / scale
 
 
 def rand_precalc_random(min, max, random_part):
@@ -59,10 +64,14 @@ def fill_truth_detection(bboxes, num_boxes, classes, flip, dx, dy, sx, sy, net_w
     bboxes[:, 1] = np.clip(bboxes[:, 1], 0, sy)
     bboxes[:, 3] = np.clip(bboxes[:, 3], 0, sy)
 
-    out_box = list(np.where(((bboxes[:, 1] == sy) & (bboxes[:, 3] == sy)) |
-                            ((bboxes[:, 0] == sx) & (bboxes[:, 2] == sx)) |
-                            ((bboxes[:, 1] == 0) & (bboxes[:, 3] == 0)) |
-                            ((bboxes[:, 0] == 0) & (bboxes[:, 2] == 0)))[0])
+    out_box = list(
+        np.where(
+            ((bboxes[:, 1] == sy) & (bboxes[:, 3] == sy))
+            | ((bboxes[:, 0] == sx) & (bboxes[:, 2] == sx))
+            | ((bboxes[:, 1] == 0) & (bboxes[:, 3] == 0))
+            | ((bboxes[:, 0] == 0) & (bboxes[:, 2] == 0))
+        )[0]
+    )
     list_box = list(range(bboxes.shape[0]))
     for i in out_box:
         list_box.remove(i)
@@ -78,10 +87,10 @@ def fill_truth_detection(bboxes, num_boxes, classes, flip, dx, dy, sx, sy, net_w
 
     min_w_h = np.array([bboxes[:, 2] - bboxes[:, 0], bboxes[:, 3] - bboxes[:, 1]]).min()
 
-    bboxes[:, 0] *= (net_w / sx)
-    bboxes[:, 2] *= (net_w / sx)
-    bboxes[:, 1] *= (net_h / sy)
-    bboxes[:, 3] *= (net_h / sy)
+    bboxes[:, 0] *= net_w / sx
+    bboxes[:, 2] *= net_w / sx
+    bboxes[:, 1] *= net_h / sy
+    bboxes[:, 3] *= net_h / sy
 
     if flip:
         temp = net_w - bboxes[:, 0]
@@ -100,8 +109,9 @@ def rect_intersection(a, b):
     return [minx, miny, maxx, maxy]
 
 
-def image_data_augmentation(mat, w, h, pleft, ptop, swidth, sheight, flip, dhue, dsat, dexp, gaussian_noise, blur,
-                            truth):
+def image_data_augmentation(
+    mat, w, h, pleft, ptop, swidth, sheight, flip, dhue, dsat, dexp, gaussian_noise, blur, truth
+):
     try:
         img = mat
         oh, ow, _ = img.shape
@@ -111,18 +121,31 @@ def image_data_augmentation(mat, w, h, pleft, ptop, swidth, sheight, flip, dhue,
         img_rect = [0, 0, ow, oh]
         new_src_rect = rect_intersection(src_rect, img_rect)  # 交集
 
-        dst_rect = [max(0, -pleft), max(0, -ptop), max(0, -pleft) + new_src_rect[2] - new_src_rect[0],
-                    max(0, -ptop) + new_src_rect[3] - new_src_rect[1]]
+        dst_rect = [
+            max(0, -pleft),
+            max(0, -ptop),
+            max(0, -pleft) + new_src_rect[2] - new_src_rect[0],
+            max(0, -ptop) + new_src_rect[3] - new_src_rect[1],
+        ]
         # cv2.Mat sized
 
-        if (src_rect[0] == 0 and src_rect[1] == 0 and src_rect[2] == img.shape[0] and src_rect[3] == img.shape[1]):
+        if (
+            src_rect[0] == 0
+            and src_rect[1] == 0
+            and src_rect[2] == img.shape[0]
+            and src_rect[3] == img.shape[1]
+        ):
             sized = cv2.resize(img, (w, h), cv2.INTER_LINEAR)
         else:
             cropped = np.zeros([sheight, swidth, 3])
-            cropped[:, :, ] = np.mean(img, axis=(0, 1))
+            cropped[
+                :,
+                :,
+            ] = np.mean(img, axis=(0, 1))
 
-            cropped[dst_rect[1]:dst_rect[3], dst_rect[0]:dst_rect[2]] = \
-                img[new_src_rect[1]:new_src_rect[3], new_src_rect[0]:new_src_rect[2]]
+            cropped[dst_rect[1] : dst_rect[3], dst_rect[0] : dst_rect[2]] = img[
+                new_src_rect[1] : new_src_rect[3], new_src_rect[0] : new_src_rect[2]
+            ]
 
             # resize
             sized = cv2.resize(cropped, (w, h), cv2.INTER_LINEAR)
@@ -142,7 +165,9 @@ def image_data_augmentation(mat, w, h, pleft, ptop, swidth, sheight, flip, dhue,
                 hsv[2] *= dexp
                 hsv[0] += 179 * dhue
                 hsv_src = cv2.merge(hsv)
-                sized = np.clip(cv2.cvtColor(hsv_src, cv2.COLOR_HSV2RGB), 0, 255)  # HSV to RGB (the same as previous)
+                sized = np.clip(
+                    cv2.cvtColor(hsv_src, cv2.COLOR_HSV2RGB), 0, 255
+                )  # HSV to RGB (the same as previous)
             else:
                 sized *= dexp
 
@@ -157,14 +182,15 @@ def image_data_augmentation(mat, w, h, pleft, ptop, swidth, sheight, flip, dhue,
             if blur == 1:
                 img_rect = [0, 0, sized.cols, sized.rows]
                 for b in truth:
-                    left = (b.x - b.w / 2.) * sized.shape[1]
+                    left = (b.x - b.w / 2.0) * sized.shape[1]
                     width = b.w * sized.shape[1]
-                    top = (b.y - b.h / 2.) * sized.shape[0]
+                    top = (b.y - b.h / 2.0) * sized.shape[0]
                     height = b.h * sized.shape[0]
                     roi(left, top, width, height)
                     roi = roi & img_rect
-                    dst[roi[0]:roi[0] + roi[2], roi[1]:roi[1] + roi[3]] = sized[roi[0]:roi[0] + roi[2],
-                                                                          roi[1]:roi[1] + roi[3]]
+                    dst[roi[0] : roi[0] + roi[2], roi[1] : roi[1] + roi[3]] = sized[
+                        roi[0] : roi[0] + roi[2], roi[1] : roi[1] + roi[3]
+                    ]
 
             sized = dst
 
@@ -193,10 +219,14 @@ def filter_truth(bboxes, dx, dy, sx, sy, xd, yd):
     bboxes[:, 1] = np.clip(bboxes[:, 1], 0, sy)
     bboxes[:, 3] = np.clip(bboxes[:, 3], 0, sy)
 
-    out_box = list(np.where(((bboxes[:, 1] == sy) & (bboxes[:, 3] == sy)) |
-                            ((bboxes[:, 0] == sx) & (bboxes[:, 2] == sx)) |
-                            ((bboxes[:, 1] == 0) & (bboxes[:, 3] == 0)) |
-                            ((bboxes[:, 0] == 0) & (bboxes[:, 2] == 0)))[0])
+    out_box = list(
+        np.where(
+            ((bboxes[:, 1] == sy) & (bboxes[:, 3] == sy))
+            | ((bboxes[:, 0] == sx) & (bboxes[:, 2] == sx))
+            | ((bboxes[:, 1] == 0) & (bboxes[:, 3] == 0))
+            | ((bboxes[:, 0] == 0) & (bboxes[:, 2] == 0))
+        )[0]
+    )
     list_box = list(range(bboxes.shape[0]))
     for i in out_box:
         list_box.remove(i)
@@ -210,8 +240,9 @@ def filter_truth(bboxes, dx, dy, sx, sy, xd, yd):
     return bboxes
 
 
-def blend_truth_mosaic(out_img, img, bboxes, w, h, cut_x, cut_y, i_mixup,
-                       left_shift, right_shift, top_shift, bot_shift):
+def blend_truth_mosaic(
+    out_img, img, bboxes, w, h, cut_x, cut_y, i_mixup, left_shift, right_shift, top_shift, bot_shift
+):
     left_shift = min(left_shift, w - cut_x)
     top_shift = min(top_shift, h - cut_y)
     right_shift = min(right_shift, cut_x)
@@ -219,16 +250,20 @@ def blend_truth_mosaic(out_img, img, bboxes, w, h, cut_x, cut_y, i_mixup,
 
     if i_mixup == 0:
         bboxes = filter_truth(bboxes, left_shift, top_shift, cut_x, cut_y, 0, 0)
-        out_img[:cut_y, :cut_x] = img[top_shift:top_shift + cut_y, left_shift:left_shift + cut_x]
+        out_img[:cut_y, :cut_x] = img[top_shift : top_shift + cut_y, left_shift : left_shift + cut_x]
     if i_mixup == 1:
         bboxes = filter_truth(bboxes, cut_x - right_shift, top_shift, w - cut_x, cut_y, cut_x, 0)
-        out_img[:cut_y, cut_x:] = img[top_shift:top_shift + cut_y, cut_x - right_shift:w - right_shift]
+        out_img[:cut_y, cut_x:] = img[top_shift : top_shift + cut_y, cut_x - right_shift : w - right_shift]
     if i_mixup == 2:
         bboxes = filter_truth(bboxes, left_shift, cut_y - bot_shift, cut_x, h - cut_y, 0, cut_y)
-        out_img[cut_y:, :cut_x] = img[cut_y - bot_shift:h - bot_shift, left_shift:left_shift + cut_x]
+        out_img[cut_y:, :cut_x] = img[cut_y - bot_shift : h - bot_shift, left_shift : left_shift + cut_x]
     if i_mixup == 3:
-        bboxes = filter_truth(bboxes, cut_x - right_shift, cut_y - bot_shift, w - cut_x, h - cut_y, cut_x, cut_y)
-        out_img[cut_y:, cut_x:] = img[cut_y - bot_shift:h - bot_shift, cut_x - right_shift:w - right_shift]
+        bboxes = filter_truth(
+            bboxes, cut_x - right_shift, cut_y - bot_shift, w - cut_x, h - cut_y, cut_x, cut_y
+        )
+        out_img[cut_y:, cut_x:] = img[
+            cut_y - bot_shift : h - bot_shift, cut_x - right_shift : w - right_shift
+        ]
 
     return out_img, bboxes
 
@@ -253,12 +288,12 @@ class Yolo_dataset(Dataset):
         self.train = train
 
         truth = {}
-        f = open(lable_path, 'r', encoding='utf-8')
+        f = open(lable_path, "r", encoding="utf-8")
         for line in f.readlines():
             data = line.split(" ")
             truth[data[0]] = []
             for i in data[1:]:
-                truth[data[0]].append([int(float(j)) for j in i.split(',')])
+                truth[data[0]].append([int(float(j)) for j in i.split(",")])
 
         self.truth = truth
         self.imgs = list(self.truth.keys())
@@ -311,7 +346,7 @@ class Yolo_dataset(Dataset):
 
             flip = random.randint(0, 1) if self.cfg.flip else 0
 
-            if (self.cfg.blur):
+            if self.cfg.blur:
                 tmp_blur = random.randint(0, 2)  # 0 - disable, 1 - blur background, 2 - blur the whole image
                 if tmp_blur == 0:
                     blur = 0
@@ -346,13 +381,37 @@ class Yolo_dataset(Dataset):
             swidth = ow - pleft - pright
             sheight = oh - ptop - pbot
 
-            truth, min_w_h = fill_truth_detection(bboxes, self.cfg.boxes, self.cfg.classes, flip, pleft, ptop, swidth,
-                                                  sheight, self.cfg.w, self.cfg.h)
+            truth, min_w_h = fill_truth_detection(
+                bboxes,
+                self.cfg.boxes,
+                self.cfg.classes,
+                flip,
+                pleft,
+                ptop,
+                swidth,
+                sheight,
+                self.cfg.w,
+                self.cfg.h,
+            )
             if (min_w_h / 8) < blur and blur > 1:  # disable blur if one of the objects is too small
                 blur = min_w_h / 8
 
-            ai = image_data_augmentation(img, self.cfg.w, self.cfg.h, pleft, ptop, swidth, sheight, flip,
-                                         dhue, dsat, dexp, gaussian_noise, blur, truth)
+            ai = image_data_augmentation(
+                img,
+                self.cfg.w,
+                self.cfg.h,
+                pleft,
+                ptop,
+                swidth,
+                sheight,
+                flip,
+                dhue,
+                dsat,
+                dexp,
+                gaussian_noise,
+                blur,
+                truth,
+            )
 
             if use_mixup == 0:
                 out_img = ai
@@ -376,19 +435,32 @@ class Yolo_dataset(Dataset):
                 right_shift = int(min((self.cfg.w - cut_x), max(0, (-int(pright) * self.cfg.w / swidth))))
                 bot_shift = int(min(self.cfg.h - cut_y, max(0, (-int(pbot) * self.cfg.h / sheight))))
 
-                out_img, out_bbox = blend_truth_mosaic(out_img, ai, truth.copy(), self.cfg.w, self.cfg.h, cut_x,
-                                                       cut_y, i, left_shift, right_shift, top_shift, bot_shift)
+                out_img, out_bbox = blend_truth_mosaic(
+                    out_img,
+                    ai,
+                    truth.copy(),
+                    self.cfg.w,
+                    self.cfg.h,
+                    cut_x,
+                    cut_y,
+                    i,
+                    left_shift,
+                    right_shift,
+                    top_shift,
+                    bot_shift,
+                )
                 out_bboxes.append(out_bbox)
                 # print(img_path)
         if use_mixup == 3:
             out_bboxes = np.concatenate(out_bboxes, axis=0)
         out_bboxes1 = np.zeros([self.cfg.boxes, 5])
-        out_bboxes1[:min(out_bboxes.shape[0], self.cfg.boxes)] = out_bboxes[:min(out_bboxes.shape[0], self.cfg.boxes)]
+        out_bboxes1[: min(out_bboxes.shape[0], self.cfg.boxes)] = out_bboxes[
+            : min(out_bboxes.shape[0], self.cfg.boxes)
+        ]
         return out_img, out_bboxes1
 
     def _get_val_item(self, index):
-        """
-        """
+        """"""
         img_path = self.imgs[index]
         bboxes_with_cls_id = np.array(self.truth.get(img_path), dtype=np.float)
         img = cv2.imread(os.path.join(self.cfg.dataset_dir, img_path))
@@ -399,17 +471,115 @@ class Yolo_dataset(Dataset):
         num_objs = len(bboxes_with_cls_id)
         target = {}
         # boxes to coco format
-        boxes = bboxes_with_cls_id[...,:4]
+        boxes = bboxes_with_cls_id[..., :4]
         boxes[..., 2:] = boxes[..., 2:] - boxes[..., :2]  # box width, box height
-        target['boxes'] = torch.as_tensor(boxes, dtype=torch.float32)
-        target['labels'] = torch.as_tensor(bboxes_with_cls_id[...,-1].flatten(), dtype=torch.int64)
-        target['image_id'] = torch.tensor([get_image_id(img_path)])
-        target['area'] = (target['boxes'][:,3])*(target['boxes'][:,2])
-        target['iscrowd'] = torch.zeros((num_objs,), dtype=torch.int64)
+        target["boxes"] = torch.as_tensor(boxes, dtype=torch.float32)
+        target["labels"] = torch.as_tensor(bboxes_with_cls_id[..., -1].flatten(), dtype=torch.int64)
+        target["image_id"] = torch.tensor([get_image_id(img_path)])
+        target["area"] = (target["boxes"][:, 3]) * (target["boxes"][:, 2])
+        target["iscrowd"] = torch.zeros((num_objs,), dtype=torch.int64)
         return img, target
 
 
-def get_image_id(filename:str) -> int:
+class Yolo_BEV_dataset(Dataset):
+    """BEV pytorch dataset to load KITTI"""
+
+    def __init__(self, config: edict, split: str = "train") -> None:
+        """
+        Args:
+            config (edict): Easy directory configuration file
+            split (str): Split to load. Can be ["train", "test", "val"]. Default = train.
+        """
+        super(Yolo_BEV_dataset, self).__init__()
+        self.cfg = config
+        self.split = split
+
+        # read images paths
+        self.img_paths = []
+        with open(os.path.join(self.cfg.dataset_dir, f"{split}_split.txt"), "r") as f:
+            for line in f:
+                self.img_paths.append(line.strip())
+
+        # read labels
+        column_types = {
+            "ID": str,
+            "alpha": float,
+            "3D_d": float,
+            "3D_l": float,
+            "3D_w": float,
+            "cos": float,
+            "sin": float,
+            "type": str,
+        }
+        self.labels = pd.read_csv(
+            os.path.join(self.cfg.dataset_dir, f"{split}_split.csv"), dtype=column_types
+        )
+
+        # extra params
+        self.fov = 82  # KITTI fov [TODO: need to adapt to new datasets]
+        self.base_width = 864
+        self.base_height = 135
+        self.canvas = np.zeros(shape=(self.cfg.height, self.cfg.width, self.cfg.channels), dtype=np.float)
+        self.mapping = {}
+        with open(self.cfg.names_path, "r") as f:
+            for i, line in enumerate(f):
+                self.mapping[line] = float(i)
+
+    def __len__(self) -> int:
+        """Number of elements in dataset
+
+        Returns:
+            int: Number of elements in dataset
+        """
+        return len(self.img_paths)
+
+    def __getitem__(self, idx: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Get single item from dataset
+
+        Args:
+            idx (int): Sample index
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: img tensor and labels. Returns
+                labels == [[-1,...,-1,"None"]] if no label is present for an img.
+        """
+        ############# read image
+        img = cv2.imread(self.img_paths[idx])
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
+        img /= 255.0
+
+        # rescale image to input size and position it to canvas center
+        new_w = int(self.base_width * (self.fov / 360.0))
+        new_w = new_w if new_w % 2 == 0 else new_w - 1
+        new_h = int((img.shape[0] / img.shape[1]) * new_w)
+        new_h = new_h if new_h % 2 == 0 else new_h - 1
+        img = cv2.resize(img, (new_w, new_h))
+
+        # define padding borders
+        tb_border = (self.canvas.shape[0] - new_h) // 2  # top/bottom border
+        lr_border = (self.canvas.shape[1] - new_w) // 2  # left/right border
+
+        # fit image into canvas
+        canvas = self.canvas.copy()
+        canvas[tb_border : canvas.shape[0] - tb_border, lr_border : canvas.shape[1] - lr_border, :] = img
+        img = canvas
+
+        ############## read labels
+        label_id = self.img_paths[idx].split("/")[-1].split(".")[0]
+        matches = self.labels[self.labels["ID"] == label_id]
+
+        # check if img has labels
+        if matches.empty:
+            labels = np.array([-1.0 for _ in range(7)])
+        else:
+            matches = matches.loc[:, matches.columns != "ID"]
+            matches = matches.replace({"cls": self.mapping})
+            labels = matches.to_numpy()
+
+        return img, labels
+
+
+def get_image_id(filename: str) -> int:
     """
     Convert a string to a integer.
     Make sure that the images and the `image_id`s are in one-one correspondence.
@@ -427,7 +597,7 @@ def get_image_id(filename:str) -> int:
     lv, no = os.path.splitext(os.path.basename(filename))[0].split("_")
     lv = lv.replace("level", "")
     no = f"{int(no):04d}"
-    return int(lv+no)
+    return int(lv + no)
 
 
 if __name__ == "__main__":
@@ -436,7 +606,7 @@ if __name__ == "__main__":
 
     random.seed(2020)
     np.random.seed(2020)
-    Cfg.dataset_dir = '/mnt/e/Dataset'
+    Cfg.dataset_dir = "/mnt/e/Dataset"
     dataset = Yolo_dataset(Cfg.train_label, Cfg)
     for i in range(100):
         out_img, out_bboxes = dataset.__getitem__(i)
