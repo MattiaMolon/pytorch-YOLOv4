@@ -15,6 +15,6 @@
 ## Yolov4_BEV_flat
 - [x] Build structure
 - [x] Implement forward pass
-- [ ] Training loop
+- [x] Training loop
 - [ ] Loss implementation
 - [ ] BEV visualization integration

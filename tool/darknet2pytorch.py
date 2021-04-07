@@ -111,6 +111,9 @@ class Darknet(nn.Module):
         self.inference = inference
         self.training = not self.inference
 
+        # define type of model
+        self.model_type = model_type
+
         # read cfg file and divide it into blocks
         self.blocks = parse_cfg(cfgfile)
 
@@ -122,9 +125,8 @@ class Darknet(nn.Module):
         # anchors are defined [W,H] for Yolov4 and [H,W] for other models
         self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
         self.num_anchors = int(self.blocks[0]["num"])
-
-        # define type of model
-        self.model_type = model_type
+        if self.model_type == "BEV_flat":
+            self.num_predictors = int(self.blocks[0]["num_predictors"])
 
         # create model from blocks
         self.model = self.create_network(self.blocks)
@@ -257,6 +259,10 @@ class Darknet(nn.Module):
         # transform anchors distance and angle into BEV space
         out_boxes[..., 0] *= self.cell_angle  # row
         out_boxes[..., 1] *= self.cell_depth  # column
+
+        # adjust alpha to be consistent with dataset
+        fovx = (len(out_boxes[0, :]) // self.num_predictors) * self.cell_angle
+        out_boxes[..., 0] -= fovx / 2
 
         return out_boxes
 
@@ -404,7 +410,7 @@ class Darknet(nn.Module):
                     yolo_layer = YoloBEVFlatLayer()
                     yolo_layer.num_classes = int(block["classes"])
                     self.num_classes = yolo_layer.num_classes
-                    yolo_layer.num_predictors = int(block["num_predictors"])
+                    yolo_layer.num_predictors = self.num_predictors
                     yolo_layer.num_anchors = self.num_anchors
                     model.append(yolo_layer)
 
