@@ -20,7 +20,7 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
 
     # load model
     m = Darknet(cfgfile, model_type="BEV_flat")
-    # m.print_network()
+    m.print_network()
 
     m.load_weights(weightfile, cut_off=54)
     print("Loading backbone from %s... Done!" % (weightfile))

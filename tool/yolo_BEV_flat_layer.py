@@ -1,3 +1,4 @@
+from torch._C import device
 import torch.nn as nn
 from tool.torch_utils import *
 import torch
@@ -20,30 +21,36 @@ def yolo_BEV_flat_forward(
     Returns:
         List[np.ndarray]: List of all bounding boxes, structure define as [batch, W*num_anchors, bbox_attrib].
     """
-
+    # fmt: off
+    import IPython ; IPython.embed()
+    # fmt: on
     # params
     # prediction.shape = [batch_size, filters, 1, W]
     batch_size = prediction.shape[0]
     row_size = prediction.shape[-1]
     bbox_attrib = 7  # dx,dy,dw,dh,sin,cos,obj
 
-    # transform prediction to shape[batch_size, num_predictors*W, bbox_attrib]
+    # transform prediction to shape[batch_size, num_predictors(H)*W, bbox_attrib]
+    # for each cell I order the bboxes from the bottom of the column to top
     prediction = prediction.view(batch_size, num_predictors * num_anchors * bbox_attrib, row_size)
     prediction = prediction.transpose(1, 2).contiguous()
     prediction = prediction.view(batch_size, row_size * num_predictors * num_anchors, bbox_attrib)
 
-    # first element: bx = (sigm(tx) + Cx)*angle_cell -> angle_cell applied in post processing
-    prediction[..., 0] = torch.sigmoid(prediction[..., 0])
+    # first element: bx = (sigm(tx) + Cx)*cell_angle -> cell_angle applied in post processing
+    prediction[..., 0:1] = torch.sigmoid(prediction[..., 0:1])
     x_offset = torch.from_numpy(np.arange(row_size)).float()
     x_offset = (
         x_offset.view(-1, 1)
         .repeat(1, num_predictors * num_anchors)
-        .view(num_predictors * num_anchors * row_size)
+        .view(num_predictors * num_anchors * row_size, 1)
     )
-    prediction[..., 0] += x_offset
+    prediction[..., 0:1] += x_offset
 
-    # element 2: by = sigm(ty)*max_dist -> max_dist applied in post processing
-    prediction[..., 1] = torch.sigmoid(prediction[..., 1])
+    # element 2: by = (sigm(ty) + Cy)*cell_depth -> cell_depth applied in post processing
+    prediction[..., 1:2] = torch.sigmoid(prediction[..., 1:2])
+    y_offset = torch.from_numpy(np.arange(num_predictors)).float()
+    y_offset = y_offset.repeat(row_size, num_anchors).view(num_predictors * num_anchors * row_size, 1)
+    prediction[..., 1:2] += y_offset
 
     # elements 3-4: bwl = exp(twl)*pwl  -> pwl applied in post processing
     prediction[..., 2:4] = torch.exp(prediction[..., 2:4])
@@ -52,7 +59,7 @@ def yolo_BEV_flat_forward(
     prediction[..., 4:6] = torch.tanh(prediction[..., 4:5])
 
     # element 6: obj = sigm(tobj)
-    prediction[..., 6] = torch.sigmoid(prediction[..., 6])
+    prediction[..., 6:] = torch.sigmoid(prediction[..., 6:])
 
     return prediction
 
