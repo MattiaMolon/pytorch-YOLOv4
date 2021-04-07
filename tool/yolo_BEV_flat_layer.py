@@ -91,7 +91,6 @@ class YoloBEVFlatLayer(nn.Module):
 
     def forward(self, output, target=None):
         if self.training:
-            print("training not implemented yet")
             return output
 
         # Apply activation functions over predictions

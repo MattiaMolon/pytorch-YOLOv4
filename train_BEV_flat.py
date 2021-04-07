@@ -27,7 +27,7 @@ from tool.utils import my_IoU
 from typing import Dict, Tuple, List
 
 
-class Yolo_loss(nn.Module):
+class Yolo_loss_OLD(nn.Module):
     def __init__(self, n_classes=80, n_anchors=3, device=None, batch=2):
         super(Yolo_loss, self).__init__()
 
@@ -142,7 +142,7 @@ class Yolo_loss(nn.Module):
             truth_j = truth_j_all[b, :n]
 
             # calculate iou between truth and reference anchors
-            # return a list NxK where N is the number of bboxes in truth and K is the numer of anchors
+            # return a list NxK where N is the number of bboxes in truth and K is the number of anchors
             anchor_ious_all = bboxes_iou(truth_box.cpu(), self.ref_anchors[output_id], CIoU=True)
 
             # find best anchor boxes compared to the truth
@@ -280,6 +280,51 @@ class Yolo_loss(nn.Module):
         return loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2
 
 
+def collate(batch):
+    images = []
+    bboxes = []
+    for img, box in batch:
+        images.append([img])
+        if len(box.shape) == 1:
+            bboxes.append(np.expand_dims(box, 0))
+        else:
+            bboxes.append(box)
+
+    images = np.concatenate(images, axis=0)
+    images = images.transpose(0, 3, 1, 2)
+    images = torch.from_numpy(images)
+    return images, bboxes
+
+
+class Yolo_loss(nn.Module):
+    def __init__(self, cfg, device):
+        super().__init__()
+        # losses
+        self.mse = nn.MSELoss()
+        self.bce = nn.BCELoss()
+
+        # constants
+        self.lambda_class = 1
+        self.lambda_noobj = 10
+        self.lambda_obj = 1
+        self.lambda_box = 10
+
+        # params
+        self.device = device
+        self.cfg = cfg
+
+    def forward(self, preds, labels):
+        loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = 0, 0, 0, 0, 0, 0
+        for pred_id, pred in enumerate(preds):
+
+            # fmt: off
+            import IPython ; IPython.embed()
+            # fmt: on
+
+            # obj and non obj mask
+            objmask = torch.zeros(preds.shape)
+
+
 def train(
     model,
     device,
@@ -299,6 +344,7 @@ def train(
         num_workers=8,
         pin_memory=True,
         drop_last=True,
+        collate_fn=collate,
     )
     val_loader = DataLoader(
         val_dataset,
@@ -307,6 +353,7 @@ def train(
         num_workers=8,
         pin_memory=True,
         drop_last=True,
+        collate_fn=collate,
     )
 
     # define summary writer
@@ -371,9 +418,8 @@ def train(
 
     # loss function
     criterion = Yolo_loss(
+        cfg=config,
         device=device,
-        batch=config.batch // config.subdivisions,
-        n_classes=config.classes,
     )
 
     # start training
@@ -389,12 +435,12 @@ def train(
                 # get batch
                 global_step += 1
                 epoch_step += 1
-                images = batch[0].to(device=device)
-                labels = batch[1].to(device=device)
+                images = batch[0].float().to(device=device)
+                labels = batch[1]
 
                 # compute loss
-                labels_pred = model(images)
-                loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = criterion(labels_pred, labels)
+                preds = model(images)
+                loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = criterion(preds, labels)
                 loss.backward()
 
                 epoch_loss += loss.item()
@@ -463,8 +509,8 @@ def train(
                         # get batch
                         global_step += 1
                         epoch_step += 1
-                        images = batch[0].to(device=device)
-                        labels = batch[1].to(device=device)
+                        images = batch[0].float().to(device=device)
+                        labels = batch[1]
 
                         # compute loss
                         labels_pred = model(images)
@@ -515,70 +561,6 @@ def train(
                         logging.info(f"failed to remove {model_to_remove}")
 
     writer.close()
-
-
-@torch.no_grad()
-def evaluate(model, data_loader, cfg, device, logger=None, **kwargs):
-    """finished, tested"""
-    # cpu_device = torch.device("cpu")
-    model.eval()
-    # header = 'Test:'
-
-    coco = convert_to_coco_api(data_loader.dataset, bbox_fmt="coco")
-    coco_evaluator = CocoEvaluator(coco, iou_types=["bbox"], bbox_fmt="coco")
-
-    for images, targets in data_loader:
-        model_input = [[cv2.resize(img, (cfg.w, cfg.h))] for img in images]
-        model_input = np.concatenate(model_input, axis=0)
-        model_input = model_input.transpose(0, 3, 1, 2)
-        model_input = torch.from_numpy(model_input).div(255.0)
-        model_input = model_input.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        model_time = time.time()
-        outputs = model(model_input)
-
-        # outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
-        model_time = time.time() - model_time
-
-        # outputs = outputs.cpu().detach().numpy()
-        res = {}
-        # for img, target, output in zip(images, targets, outputs):
-        for img, target, boxes, confs in zip(images, targets, outputs[0], outputs[1]):
-            img_height, img_width = img.shape[:2]
-            # boxes = output[...,:4].copy()  # output boxes in yolo format
-            boxes = boxes.squeeze(2).cpu().detach().numpy()
-            boxes[..., 2:] = boxes[..., 2:] - boxes[..., :2]  # Transform [x1, y1, x2, y2] to [x1, y1, w, h]
-            boxes[..., 0] = boxes[..., 0] * img_width
-            boxes[..., 1] = boxes[..., 1] * img_height
-            boxes[..., 2] = boxes[..., 2] * img_width
-            boxes[..., 3] = boxes[..., 3] * img_height
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)
-            # confs = output[...,4:].copy()
-            confs = confs.cpu().detach().numpy()
-            labels = np.argmax(confs, axis=1).flatten()
-            labels = torch.as_tensor(labels, dtype=torch.int64)
-            scores = np.max(confs, axis=1).flatten()
-            scores = torch.as_tensor(scores, dtype=torch.float32)
-            res[target["image_id"].item()] = {
-                "boxes": boxes,
-                "scores": scores,
-                "labels": labels,
-            }
-        evaluator_time = time.time()
-        coco_evaluator.update(res)
-        evaluator_time = time.time() - evaluator_time
-
-    # gather the stats from all processes
-    coco_evaluator.synchronize_between_processes()
-
-    # accumulate predictions from all images
-    coco_evaluator.accumulate()
-    coco_evaluator.summarize()
-
-    return coco_evaluator
 
 
 def get_args(**kwargs) -> dict:

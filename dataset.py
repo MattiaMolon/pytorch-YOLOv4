@@ -574,7 +574,7 @@ class Yolo_BEV_dataset(Dataset):
         else:
             matches = matches.loc[:, matches.columns != "ID"]
             matches = matches.replace({"cls": self.mapping})
-            labels = matches.to_numpy()
+            labels = matches.to_numpy().astype(np.float)
 
         return img, labels
 

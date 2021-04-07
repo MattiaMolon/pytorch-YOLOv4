@@ -9,7 +9,7 @@ Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat.cfg")
 
 Cfg.epochs = 5
 Cfg.batch = 64
-Cfg.subdivisions = 16
+Cfg.subdivisions = 32
 Cfg.width = 200
 Cfg.height = 136
 Cfg.channels = 3
