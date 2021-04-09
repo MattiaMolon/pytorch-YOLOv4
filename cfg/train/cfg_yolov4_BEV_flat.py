@@ -27,6 +27,14 @@ Cfg.steps = [400000, 450000]
 Cfg.policy = Cfg.steps
 Cfg.scales = 0.1, 0.1
 
+# BEV params
+Cfg.num_predictors = 20
+Cfg.cell_angle = 3.33
+Cfg.cell_depth = 5
+Cfg.anchors = 1.64, 3.93
+Cfg.num_anchors = 1
+
+# data augmentation
 Cfg.cutmix = 0
 Cfg.mosaic = 1
 
@@ -40,7 +48,6 @@ Cfg.flip = 1
 Cfg.blur = 0
 Cfg.gaussian = 0
 Cfg.boxes = 60  # box num
-Cfg.TRAIN_EPOCHS = 300
 Cfg.TRAIN_OPTIMIZER = "adam"
 
 if Cfg.mosaic and Cfg.cutmix:

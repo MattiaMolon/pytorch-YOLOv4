@@ -16,5 +16,5 @@
 - [x] Build structure
 - [x] Implement forward pass
 - [x] Training loop
-- [ ] Loss implementation
+- [x] Loss implementation
 - [ ] BEV visualization integration

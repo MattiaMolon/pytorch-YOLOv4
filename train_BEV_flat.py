@@ -300,29 +300,99 @@ class Yolo_loss(nn.Module):
     def __init__(self, cfg, device):
         super().__init__()
         # losses
-        self.mse = nn.MSELoss()
-        self.bce = nn.BCELoss()
+        self.mse = nn.MSELoss(reduction="sum")
+        self.bce = nn.BCELoss(reduction="sum")
 
         # constants
-        self.lambda_class = 1
-        self.lambda_noobj = 10
-        self.lambda_obj = 1
-        self.lambda_box = 10
+        self.lambda_xy = 1
+        self.lambda_wl = 1
+        self.lambda_rot = 10
+        self.lambda_obj = 10
+        self.lambda_noobj = 1
 
         # params
         self.device = device
-        self.cfg = cfg
+        self.cell_angle = cfg.cell_angle
+        self.cell_depth = cfg.cell_depth
+        self.bbox_attrib = 7
+        self.num_predictors = 20
+        self.num_anchors = 1
+        self.anchors = [(cfg.anchors[i], cfg.anchors[i + 1]) for i in range(0, len(cfg.anchors), 2)]
 
     def forward(self, preds, labels):
-        loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = 0, 0, 0, 0, 0, 0
+        # TODO: need to adapt in case of multiple anchors or multiple classes
+        # params
+        loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        row_size = preds.shape[-1]
+
         for pred_id, pred in enumerate(preds):
+            ################### get pred
+            pred = pred.view(self.num_anchors * self.num_predictors * self.bbox_attrib, row_size)
+            pred = pred.permute(1, 0).contiguous()
+            pred = pred.view(row_size, self.num_predictors, self.num_anchors * self.bbox_attrib)
 
-            # fmt: off
-            import IPython ; IPython.embed()
-            # fmt: on
+            # transform pred
+            pred[..., :2] = torch.sigmoid(pred[..., :2])  # xy
+            pred[..., 2:4] = pred[..., 2:4]  # wl better gradient flow if we tranf target rather than pred
+            pred[..., 4:6] = torch.tanh(pred[..., 4:6])  # rotation
+            pred[..., 6:7] = torch.sigmoid(pred[..., 6:7])  # confidence class
 
-            # obj and non obj mask
-            objmask = torch.zeros(preds.shape)
+            ################### get labels
+            pred_labels = labels[pred_id]
+            pred_labels[:, 0] += (row_size * self.cell_angle) / 2  # adjust angle with fov
+            has_labels = pred_labels[0][-1] >= 0.0
+
+            # obj and no obj mask
+            obj_mask = torch.zeros((row_size, self.num_predictors * self.num_anchors)).to(self.device)
+            if has_labels:  # some gt is present
+                for label in pred_labels:
+                    i, j = int(label[0] // self.cell_angle), int(label[1] // self.cell_depth)
+                    obj_mask[i, j] = 1.0
+            obj_mask = obj_mask.bool()
+            noobj_mask = (~obj_mask).to(self.device)
+
+            # target matrix
+            target = torch.zeros((row_size, self.num_predictors, self.bbox_attrib * self.num_anchors)).to(
+                self.device
+            )
+            if has_labels:
+                for label in pred_labels:
+                    i, j = int(label[0] // self.cell_angle), int(label[1] // self.cell_depth)
+
+                    # normalize labels
+                    label[0] = label[0] / self.cell_angle - i  # x
+                    label[1] = label[1] / self.cell_depth - j  # y
+                    label[6] = 1.0
+
+                    label = torch.from_numpy(label).to(device)
+                    target[i, j] = label
+
+            ################### compute losses
+            ####### box coordinates loss
+            loss_xy += self.mse(pred[obj_mask][..., :2], target[obj_mask][..., :2])
+            target[..., 2:3] = torch.log(target[..., 2:3] / self.anchors[0][0] + 1e-16)  # w
+            target[..., 3:4] = torch.log(target[..., 3:4] / self.anchors[0][1] + 1e-16)  # l
+            loss_wl += self.mse(pred[obj_mask][..., 2:4], target[obj_mask][..., 2:4])
+            # loss_wh += self.mse(torch.sqrt(pred[obj_mask][..., 2:4]), torch.sqrt(target[obj_mask][..., 2:4]))
+
+            ####### rotation loss
+            loss_rot += self.mse(pred[obj_mask][..., 4:6], target[obj_mask][..., 4:6])
+
+            ####### obj loss (same as class loss)
+            loss_obj += self.bce(pred[obj_mask][..., 6:], target[obj_mask][..., 6:])
+
+            ####### noobj loss
+            loss_noobj += self.bce(pred[noobj_mask][..., 6:], target[noobj_mask][..., 6:])
+
+        loss = (
+            self.lambda_xy * loss_xy
+            + self.lambda_wl * loss_wl
+            + self.lambda_rot * loss_rot
+            + self.lambda_obj * loss_obj
+            + self.lambda_noobj * loss_noobj
+        )
+
+        return loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj
 
 
 def train(
@@ -366,7 +436,6 @@ def train(
     # log
     n_train = len(train_dataset)
     n_val = len(val_dataset)
-    max_itr = config.TRAIN_EPOCHS * n_train
     global_step = 0
     logging.info(
         f"""Starting training:
@@ -439,8 +508,8 @@ def train(
                 labels = batch[1]
 
                 # compute loss
-                preds = model(images)
-                loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = criterion(preds, labels)
+                preds = model(images)[0]
+                loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(preds, labels)
                 loss.backward()
 
                 epoch_loss += loss.item()
@@ -455,32 +524,32 @@ def train(
                 if global_step % (log_step * config.subdivisions) == 0:
                     writer.add_scalar("train/Loss", loss.item(), global_step)
                     writer.add_scalar("train/loss_xy", loss_xy.item(), global_step)
-                    writer.add_scalar("train/loss_wh", loss_wh.item(), global_step)
+                    writer.add_scalar("train/loss_wl", loss_wl.item(), global_step)
+                    writer.add_scalar("train/loss_rot", loss_rot.item(), global_step)
                     writer.add_scalar("train/loss_obj", loss_obj.item(), global_step)
-                    writer.add_scalar("train/loss_cls", loss_cls.item(), global_step)
-                    writer.add_scalar("train/loss_l2", loss_l2.item(), global_step)
+                    writer.add_scalar("train/loss_noobj", loss_noobj.item(), global_step)
                     writer.add_scalar("lr", scheduler.get_lr()[0] * config.batch, global_step)
                     pbar.set_postfix(
-                        **{
+                        {
                             "loss (batch)": loss.item(),
                             "loss_xy": loss_xy.item(),
-                            "loss_wh": loss_wh.item(),
+                            "loss_wl": loss_wl.item(),
+                            "loss_rot": loss_rot.item(),
                             "loss_obj": loss_obj.item(),
-                            "loss_cls": loss_cls.item(),
-                            "loss_l2": loss_l2.item(),
+                            "loss_noobj": loss_noobj.item(),
                             "lr": scheduler.get_lr()[0] * config.batch,
                         }
                     )
                     logging.debug(
-                        "Train step_{}: loss : {},loss xy : {},loss wh : {},"
-                        "loss obj : {}，loss cls : {},loss l2 : {},lr : {}".format(
+                        "Train step_{}: loss : {},loss xy : {},loss wl : {},"
+                        "loss rot : {}，loss obj : {},loss noobj : {},lr : {}".format(
                             global_step,
                             loss.item(),
                             loss_xy.item(),
-                            loss_wh.item(),
+                            loss_wl.item(),
+                            loss_rot.item(),
                             loss_obj.item(),
-                            loss_cls.item(),
-                            loss_l2.item(),
+                            loss_noobj.item(),
                             scheduler.get_lr()[0] * config.batch,
                         )
                     )
@@ -500,10 +569,10 @@ def train(
 
                 eval_loss = 0.0
                 eval_loss_xy = 0.0
-                eval_loss_wh = 0.0
+                eval_loss_wl = 0.0
+                eval_loss_rot = 0.0
                 eval_loss_obj = 0.0
-                eval_loss_cls = 0.0
-                eval_loss_l2 = 0.0
+                eval_loss_noobj = 0.0
                 with tqdm(total=n_val, desc=f"Eval {(epoch + 1) // 2}", unit="img", ncols=50) as epbar:
                     for i, batch in enumerate(val_loader):
                         # get batch
@@ -514,27 +583,29 @@ def train(
 
                         # compute loss
                         labels_pred = model(images)
-                        loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2 = criterion(labels_pred, labels)
+                        loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(
+                            labels_pred, labels
+                        )
                         eval_loss += loss.item()
                         eval_loss_xy += loss_xy.item()
-                        eval_loss_wh += loss_wh.item()
-                        eval_loss_obj += loss_obj.item()
-                        eval_loss_cls += loss_cls.item()
-                        eval_loss_l2 += loss_l2.item()
+                        eval_loss_wl += loss_wl.item()
+                        eval_loss_rot += loss_rot.item()
+                        eval_loss_rot += loss_obj.item()
+                        eval_loss_noobj += loss_noobj.item()
 
                         epbar.update(images.shape[0])
 
                 # log
                 logging.debug(
-                    "Val step_{}: loss : {},loss xy : {},loss wh : {},"
-                    "loss obj : {}，loss cls : {},loss l2 : {},lr : {}".format(
+                    "Val step_{}: loss : {},loss xy : {},loss wl : {},"
+                    "loss rot : {}，loss obj : {},loss noobj : {},lr : {}".format(
                         global_step,
                         eval_loss.item(),
                         eval_loss_xy.item(),
-                        eval_loss_wh.item(),
+                        eval_loss_wl.item(),
+                        eval_loss_rot.item(),
                         eval_loss_obj.item(),
-                        eval_loss_cls.item(),
-                        eval_loss_l2.item(),
+                        eval_loss_noobj.item(),
                         scheduler.get_lr()[0] * config.batch,
                     )
                 )
@@ -590,6 +661,14 @@ def get_args(**kwargs) -> dict:
         dest="load",
         type=str,
         default=None,
+        help="Path to a .pth file to load",
+    )
+    parser.add_argument(
+        "-b",
+        "--backbone",
+        dest="backbone",
+        type=str,
+        default=os.path.abspath(".") + "/checkpoints/yolov4.weights",
         help="Load model from a .pth file",
     )
     parser.add_argument("-g", "--gpu", metavar="G", type=str, default="-1", help="GPU id", dest="gpu")
@@ -711,11 +790,17 @@ if __name__ == "__main__":
         model = torch.nn.DataParallel(model)
     model.to(device=device)
 
+    # load weights
+    if cfg.load is None:
+        model.load_weights(cfg.backbone, cut_off=53)
+    else:
+        model.load_state_dict(cfg.load)
+
     try:
         train(
             model=model,
             config=cfg,
-            epochs=cfg.TRAIN_EPOCHS,
+            epochs=cfg.epochs,
             device=device,
         )
     except KeyboardInterrupt:

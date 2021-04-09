@@ -21,9 +21,6 @@ def yolo_BEV_flat_forward(
     Returns:
         List[np.ndarray]: List of all bounding boxes, structure define as [batch, W*num_anchors, bbox_attrib].
     """
-    # fmt: off
-    import IPython ; IPython.embed()
-    # fmt: on
     # params
     # prediction.shape = [batch_size, filters, 1, W]
     batch_size = prediction.shape[0]
