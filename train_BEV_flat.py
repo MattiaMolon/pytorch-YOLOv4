@@ -78,6 +78,9 @@ class Yolo_loss(nn.Module):
             pred = pred.permute(1, 0).contiguous()
             pred = pred.view(row_size, self.num_predictors, self.num_anchors * self.bbox_attrib)
 
+            # GPU fix
+            pred = torch.clone(pred)
+
             # transform pred
             pred[..., :2] = torch.sigmoid(pred[..., :2])  # xy
             pred[..., 2:4] = pred[..., 2:4]  # wl better gradient flow if we tranf target rather than pred
@@ -246,7 +249,7 @@ def train(
         epoch_loss = 0
         epoch_step = 0
 
-        with tqdm(total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img", ncols=75) as pbar:
+        with tqdm(total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img", ncols=100) as pbar:
             for i, batch in enumerate(train_loader):
                 # get batch
                 global_step += 1
@@ -288,8 +291,8 @@ def train(
                         }
                     )
                     logging.debug(
-                        "Train step_{}: loss : {},loss xy : {},loss wl : {},"
-                        "loss rot : {}，loss obj : {},loss noobj : {},lr : {}".format(
+                        "Train step_{} -> loss : {}, loss xy : {}, loss wl : {}, "
+                        "loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(
                             global_step,
                             loss.item(),
                             loss_xy.item(),
@@ -302,6 +305,10 @@ def train(
                     )
 
                 pbar.update(images.shape[0])
+
+            # epochs log
+            writer.add_scalar("Epoch/loss", epoch_loss, epoch_step)
+            writer.add_scalar("Epoch/mean_loss", epoch_loss / n_train, epoch_step)
 
             # evaluate models
             min_eval_loss = math.inf
@@ -320,7 +327,10 @@ def train(
                 eval_loss_rot = 0.0
                 eval_loss_obj = 0.0
                 eval_loss_noobj = 0.0
-                with tqdm(total=n_val, desc=f"Eval {(epoch + 1) // 2}", unit="img", ncols=75) as epbar:
+
+                print("\nEvaluating...")
+                val_i = 0
+                while val_i < n_val:
                     for i, batch in enumerate(val_loader):
                         # get batch
                         global_step += 1
@@ -340,19 +350,19 @@ def train(
                         eval_loss_rot += loss_obj.item()
                         eval_loss_noobj += loss_noobj.item()
 
-                        epbar.update(images.shape[0])
+                        val_i += images.shape[0]
 
                 # log
                 logging.debug(
-                    "Val step_{}: loss : {},loss xy : {},loss wl : {},"
-                    "loss rot : {}，loss obj : {},loss noobj : {},lr : {}".format(
+                    "Val step_{} -> loss : {}, loss xy : {}, loss wl : {},"
+                    " loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(
                         global_step,
-                        eval_loss.item(),
-                        eval_loss_xy.item(),
-                        eval_loss_wl.item(),
-                        eval_loss_rot.item(),
-                        eval_loss_obj.item(),
-                        eval_loss_noobj.item(),
+                        eval_loss,
+                        eval_loss_xy,
+                        eval_loss_wl,
+                        eval_loss_rot,
+                        eval_loss_obj,
+                        eval_loss_noobj,
                         scheduler.get_lr()[0] * config.batch,
                     )
                 )

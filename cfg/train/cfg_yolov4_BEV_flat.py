@@ -7,7 +7,7 @@ Cfg = EasyDict()
 
 Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat.cfg")
 
-Cfg.epochs = 5
+Cfg.epochs = 50
 Cfg.batch = 64
 Cfg.subdivisions = 32
 Cfg.width = 200
