@@ -269,6 +269,16 @@ class Darknet(nn.Module):
     def print_network(self):
         print_cfg(self.blocks)
 
+    def freeze_layers(self, layer_ids: List[int]):
+        """Freeze layers with specified IDs during training
+
+        Args:
+            layer_ids (List[int]): layer IDs to freeze
+        """
+        for id in layer_ids:
+            for param in self.model[id].parameters():
+                param.requires_grad = False
+
     def create_network(self, blocks):
         model = nn.ModuleList()
 
