@@ -9,7 +9,7 @@ Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat.cfg")
 
 Cfg.epochs = 50
 Cfg.batch = 64
-Cfg.subdivisions = 32
+Cfg.subdivisions = 16
 Cfg.width = 200
 Cfg.height = 136
 Cfg.channels = 3
@@ -62,4 +62,4 @@ Cfg.TRAIN_TENSORBOARD_DIR = os.path.join(_BASE_DIR, "log")
 
 Cfg.iou_type = "rgIoU"  # ['IoU', 'gIoU', 'rIoU', 'gIoU']
 
-Cfg.keep_checkpoint_max = 10
+Cfg.keep_checkpoint_max = 5

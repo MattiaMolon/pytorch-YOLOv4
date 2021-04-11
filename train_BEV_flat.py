@@ -122,8 +122,8 @@ class Yolo_loss(nn.Module):
             loss_xy += self.mse(pred[obj_mask][..., :2], target[obj_mask][..., :2])
             target[..., 2:3] = torch.log(target[..., 2:3] / self.anchors[0][0] + 1e-16)  # w
             target[..., 3:4] = torch.log(target[..., 3:4] / self.anchors[0][1] + 1e-16)  # l
-            loss_wl += self.mse(pred[obj_mask][..., 2:4], target[obj_mask][..., 2:4])
-            # loss_wh += self.mse(torch.sqrt(pred[obj_mask][..., 2:4]), torch.sqrt(target[obj_mask][..., 2:4]))
+            # loss_wl += self.mse(pred[obj_mask][..., 2:4], target[obj_mask][..., 2:4])
+            loss_wl += self.mse(torch.sqrt(pred[obj_mask][..., 2:4]), torch.sqrt(target[obj_mask][..., 2:4]))
 
             ####### rotation loss
             loss_rot += self.mse(pred[obj_mask][..., 4:6], target[obj_mask][..., 4:6])
@@ -248,6 +248,7 @@ def train(
     for epoch in range(epochs):
         epoch_loss = 0
         epoch_step = 0
+        min_eval_loss = math.inf
 
         with tqdm(total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img", ncols=100) as pbar:
             for i, batch in enumerate(train_loader):
@@ -311,7 +312,6 @@ def train(
             writer.add_scalar("Epoch/mean_loss", epoch_loss / n_train, epoch_step)
 
             # evaluate models
-            min_eval_loss = math.inf
             if epoch % 2 == 0:
                 eval_model = Darknet(cfg.cfgfile, inference=True, model_type="BEV_flat")
                 if torch.cuda.device_count() > 1:
@@ -366,6 +366,12 @@ def train(
                         scheduler.get_lr()[0] * config.batch,
                     )
                 )
+                writer.add_scalar("val/Loss", eval_loss, epoch)
+                writer.add_scalar("val/loss_xy", eval_loss_xy, epoch)
+                writer.add_scalar("val/loss_wl", eval_loss_wl, epoch)
+                writer.add_scalar("val/loss_rot", eval_loss_rot, epoch)
+                writer.add_scalar("val/loss_obj", eval_loss_obj, epoch)
+                writer.add_scalar("val/loss_noobj", eval_loss_noobj, epoch)
 
                 del eval_model
 
