@@ -1,4 +1,3 @@
-from numpy.lib.financial import ipmt
 from tool.utils import *
 from tool.torch_utils import *
 from tool.darknet2pytorch import Darknet
@@ -49,6 +48,7 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
     print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
 
     # TODO: plot boxes in BEV
+    draw_bboxes_BEV(sized, boxes)
 
 
 def get_args():

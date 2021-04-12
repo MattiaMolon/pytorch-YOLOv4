@@ -17,4 +17,4 @@
 - [x] Implement forward pass
 - [x] Training loop
 - [x] Loss implementation
-- [ ] BEV visualization integration
+- [x] BEV visualization integration

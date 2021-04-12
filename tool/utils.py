@@ -2,18 +2,17 @@ import sys
 import os
 import time
 import math
+import cv2
 from typing import Any
-from warnings import WarningMessage
+import matplotlib
 import numpy as np
-
-import itertools
-import struct  # get_image_size
-import imghdr  # get_image_size
 import torch
-from torch._C import import_ir_module_from_buffer
-
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+import matplotlib.image as mpimg
 from shapely.affinity import rotate, translate
 from shapely.geometry import Polygon
+from typing import List
 
 from tqdm import tqdm
 
@@ -383,6 +382,74 @@ def post_processing(img, conf_thresh, nms_thresh, output):
     print("-----------------------------------")
 
     return bboxes_batch
+
+
+# class to draw rotating triangles
+class RotatingRectangle(Rectangle):
+    def __init__(self, xy, width, height, rel_point_of_rot, **kwargs):
+        """xy = center of the triangle"""
+        super().__init__(xy, width, height, **kwargs)
+        self.rel_point_of_rot = rel_point_of_rot
+        self.xy_center = self.get_xy()
+        self.set_angle(self.angle)
+
+    def _apply_rotation(self):
+        angle_rad = self.angle * np.pi / 180
+        m_trans = np.array([[np.cos(angle_rad), -np.sin(angle_rad)], [np.sin(angle_rad), np.cos(angle_rad)]])
+        shift = -m_trans @ self.rel_point_of_rot
+        self.set_xy(self.xy_center + shift)
+
+    def set_angle(self, angle):
+        self.angle = angle
+        self._apply_rotation()
+
+    def set_rel_point_of_rot(self, rel_point_of_rot):
+        self.rel_point_of_rot = rel_point_of_rot
+        self._apply_rotation()
+
+    def set_xy_center(self, xy):
+        self.xy_center = xy
+        self._apply_rotation()
+
+
+def draw_bboxes_BEV(batch: np.ndarray, preds: torch.Tensor, overlap_gt=False, fovx=25.0 * 3.33) -> None:
+    plane_BEV = plt.imread("./extra_utils/BEV_plane.png")
+    origin = (plane_BEV.shape[0] // 2, plane_BEV.shape[1] // 2)
+
+    save_dir = os.path.join(os.path.abspath("."), "predictions")
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
+
+    for i, img in enumerate(batch):
+        pred = preds[i]
+        patches = []
+
+        for j, box in enumerate(pred):
+            x = (box[1] * math.sin(math.radians(box[0]))) + origin[0]
+            z = (box[1] * math.cos(math.radians(box[0]))) + origin[1]
+            patches.append(
+                RotatingRectangle(
+                    (x, z),
+                    width=box[3],
+                    height=box[2],
+                    rel_point_of_rot=(box[3] / 2, box[2] / 2),
+                    angle=-math.degrees(math.atan2(box[4], box[5])),
+                    color="red",
+                    fill=False,
+                )
+            )  # minus degree because of right hand rule
+
+        # save image
+        plt.imsave(os.path.join(save_dir, str(i) + ".png"), img)
+
+        # draw and save BEV
+        plane_BEV = plt.imread("./extra_utils/BEV_plane.png")
+        fig, ax = plt.subplots(1)
+        ax.set_aspect("equal")
+        ax.imshow(plane_BEV, origin="lower")
+        for rect in patches:
+            ax.add_patch(rect)
+        plt.savefig(os.path.join(save_dir, str(i) + "_.png"))
 
 
 def nms_BEV(

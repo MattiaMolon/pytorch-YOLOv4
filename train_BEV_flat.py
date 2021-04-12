@@ -83,7 +83,7 @@ class Yolo_loss(nn.Module):
 
             # transform pred
             pred[..., :2] = torch.sigmoid(pred[..., :2])  # xy
-            pred[..., 2:4] = pred[..., 2:4]  # wl better gradient flow if we tranf target rather than pred
+            pred[..., 2:4] = pred[..., 2:4]  # wl better gradient flow if we transf target rather than pred
             pred[..., 4:6] = torch.tanh(pred[..., 4:6])  # rotation
             pred[..., 6:7] = torch.sigmoid(pred[..., 6:7])  # confidence class
 
@@ -122,8 +122,8 @@ class Yolo_loss(nn.Module):
             loss_xy += self.mse(pred[obj_mask][..., :2], target[obj_mask][..., :2])
             target[..., 2:3] = torch.log(target[..., 2:3] / self.anchors[0][0] + 1e-16)  # w
             target[..., 3:4] = torch.log(target[..., 3:4] / self.anchors[0][1] + 1e-16)  # l
-            # loss_wl += self.mse(pred[obj_mask][..., 2:4], target[obj_mask][..., 2:4])
-            loss_wl += self.mse(torch.sqrt(pred[obj_mask][..., 2:4]), torch.sqrt(target[obj_mask][..., 2:4]))
+            loss_wl += self.mse(pred[obj_mask][..., 2:4], target[obj_mask][..., 2:4])
+            # loss_wl += self.mse(torch.sqrt(pred[obj_mask][..., 2:4]), torch.sqrt(target[obj_mask][..., 2:4]))
 
             ####### rotation loss
             loss_rot += self.mse(pred[obj_mask][..., 4:6], target[obj_mask][..., 4:6])
@@ -280,17 +280,6 @@ def train(
                     writer.add_scalar("train/loss_obj", loss_obj.item(), global_step)
                     writer.add_scalar("train/loss_noobj", loss_noobj.item(), global_step)
                     writer.add_scalar("lr", scheduler.get_lr()[0] * config.batch, global_step)
-                    pbar.set_postfix(
-                        {
-                            "loss (batch)": loss.item(),
-                            "loss_xy": loss_xy.item(),
-                            "loss_wl": loss_wl.item(),
-                            "loss_rot": loss_rot.item(),
-                            "loss_obj": loss_obj.item(),
-                            "loss_noobj": loss_noobj.item(),
-                            "lr": scheduler.get_lr()[0] * config.batch,
-                        }
-                    )
                     logging.debug(
                         "Train step_{} -> loss : {}, loss xy : {}, loss wl : {}, "
                         "loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(

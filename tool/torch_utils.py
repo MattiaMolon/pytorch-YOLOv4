@@ -72,7 +72,7 @@ def convert2cpu_long(gpu_matrix):
     return torch.LongTensor(gpu_matrix.size()).copy_(gpu_matrix)
 
 
-def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1):
+def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1, nms_iou="rgIoU"):
     model.eval()
     t0 = time.time()
 
@@ -104,7 +104,7 @@ def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1):
     if model.model_type == "Yolov4":
         return utils.post_processing(img, obj_thresh, nms_thresh, output)
     elif model.model_type in ["BEV_grid", "BEV_flat"]:
-        return utils.nms_BEV(output, obj_thresh, nms_thresh, iou_type="rgIoU")
+        return utils.nms_BEV(output, obj_thresh, nms_thresh, iou_type=nms_iou)
     else:
         print("model type not recognized in do_detect()")
         quit(1)
