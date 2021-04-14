@@ -72,7 +72,7 @@ def convert2cpu_long(gpu_matrix):
     return torch.LongTensor(gpu_matrix.size()).copy_(gpu_matrix)
 
 
-def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1, nms_iou="rgIoU"):
+def do_detect(model, img, obj_thresh, nms_thresh, device, nms_iou="rgIoU"):
     model.eval()
     t0 = time.time()
 
@@ -86,8 +86,7 @@ def do_detect(model, img, obj_thresh, nms_thresh, use_cuda=1, nms_iou="rgIoU"):
         exit(-1)
 
     # push to GPU
-    if use_cuda:
-        img = img.cuda()
+    img.to(device)
     img = torch.autograd.Variable(img)
 
     t1 = time.time()

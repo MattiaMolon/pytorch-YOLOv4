@@ -1,12 +1,9 @@
-import time
 import logging
 import os, sys, math
 import argparse
 from collections import deque
 import datetime
 
-import cv2
-from numpy.core.fromnumeric import size
 from torch.nn.modules import module
 from tqdm import tqdm
 import numpy as np
@@ -14,7 +11,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch import optim
-from torch.nn import functional as F
 from tensorboardX import SummaryWriter
 from easydict import EasyDict as edict
 
@@ -22,9 +18,6 @@ from dataset import Yolo_BEV_dataset
 from cfg.train.cfg_yolov4_BEV_flat import Cfg
 
 from tool.darknet2pytorch import Darknet
-from tool.utils import my_IoU
-
-from typing import Dict, Tuple, List
 
 
 def collate(batch):
@@ -245,10 +238,10 @@ def train(
     save_prefix = "Yolov4_BEV_flat_epoch"
     saved_models = deque()
     model.train()
+    min_eval_loss = math.inf
     for epoch in range(epochs):
         epoch_loss = 0
         epoch_step = 0
-        min_eval_loss = math.inf
 
         with tqdm(total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img", ncols=100) as pbar:
             for i, batch in enumerate(train_loader):
@@ -398,7 +391,7 @@ def get_args(**kwargs) -> dict:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "-l",
+        "-lr",
         "--learning-rate",
         metavar="LR",
         type=float,
@@ -408,20 +401,12 @@ def get_args(**kwargs) -> dict:
         dest="learning_rate",
     )
     parser.add_argument(
-        "-f",
+        "-l",
         "--load",
         dest="load",
         type=str,
-        default=None,
-        help="Path to a .pth file to load",
-    )
-    parser.add_argument(
-        "-b",
-        "--backbone",
-        dest="backbone",
-        type=str,
         default=os.path.abspath(".") + "/checkpoints/yolov4.weights",
-        help="Load model from a .pth file",
+        help="Path to a .pth file to load",
     )
     parser.add_argument("-g", "--gpu", metavar="G", type=str, default="-1", help="GPU id", dest="gpu")
     parser.add_argument(
@@ -543,10 +528,10 @@ if __name__ == "__main__":
     model.to(device=device)
 
     # load weights
-    if cfg.load is None:
-        model.load_weights(cfg.backbone, cut_off=53)
+    if cfg.load.endswith(".weights"):
+        model.load_weights(cfg.load, cut_off=53)
     else:
-        model.load_state_dict(cfg.load)
+        model.load_state_dict(torch.load(cfg.load))
 
     # freeze backbone
     model.freeze_layers([i for i in range(54)])

@@ -1,11 +1,16 @@
 from tool.utils import *
 from tool.torch_utils import *
 from tool.darknet2pytorch import Darknet
+from dataset import Yolo_BEV_dataset, Yolo_dataset
 import cv2
 import argparse
 
 """hyper parameters"""
-use_cuda = False
+# check for cuda
+if torch.cuda.is_available():
+    device = "cuda:0"
+else:
+    device = "cpu"
 
 
 def detect_BEV_flat(cfgfile, weightfile, imgfile):
@@ -21,47 +26,45 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
     m = Darknet(cfgfile, model_type="BEV_flat")
     m.print_network()
 
-    m.load_weights(weightfile, cut_off=54)
+    if weightfile.endswith(".weights"):
+        m.load_weights(weightfile, cut_off=54)
+    else:
+        m.load_state_dict(torch.load(weightfile, map_location=torch.device(device)))
     print("Loading backbone from %s... Done!" % (weightfile))
 
     # push to GPU
-    if use_cuda:
-        m.cuda()
-
-    # load names
-    namesfile = "names/BEV.names"
-    class_names = load_class_names(namesfile)
+    m.to(device)
 
     # read sample image
     img = cv2.imread(imgfile)
-    sized = cv2.resize(img, (m.width, m.height))
-    sized = cv2.cvtColor(sized, cv2.COLOR_BGR2RGB)
+    img = preprocess_KITTI_input(img)
 
     # create batch
-    sized = np.expand_dims(sized, 0)
-    sized = np.concatenate((sized, sized), 0)
+    batch = np.expand_dims(img, 0)
 
     # run inference
     start = time.time()
-    boxes = do_detect(m, sized, 0.4, 0.6, use_cuda)
+    boxes = do_detect(m, batch, 0.5, 0.6, device, nms_iou="rgIoU")
     finish = time.time()
     print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
 
     # TODO: plot boxes in BEV
-    draw_bboxes_BEV(sized, boxes)
+    draw_bboxes_BEV(batch.shape[0], boxes)
 
 
 def get_args():
     parser = argparse.ArgumentParser("Test your image by trained model.")
     parser.add_argument(
-        "-cfgfile",
+        "-cfg",
+        "--cfgfile",
         type=str,
         default="./cfg/model/yolov4_BEV_flat.cfg",
         help="path of cfg file",
         dest="cfgfile",
     )
     parser.add_argument(
-        "-weightfile",
+        "-l",
+        "--load",
         type=str,
         default="./checkpoints/yolov4.weights",
         help="path of trained model.",
@@ -70,7 +73,7 @@ def get_args():
     parser.add_argument(
         "-imgfile",
         type=str,
-        default="../data/KITTI/train/images/000001.png",
+        default="../data/KITTI/train/images/001167.png",
         help="path of your image file.",
         dest="imgfile",
     )

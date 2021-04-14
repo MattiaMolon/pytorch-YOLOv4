@@ -1,3 +1,0 @@
-This file has the only purpose to maintain the tree structure 
-of the repository without uploading the data in the current 
-directory to github

@@ -412,7 +412,44 @@ class RotatingRectangle(Rectangle):
         self._apply_rotation()
 
 
-def draw_bboxes_BEV(batch: np.ndarray, preds: torch.Tensor, overlap_gt=False, fovx=25.0 * 3.33) -> None:
+def preprocess_KITTI_input(img):
+    # Kitti params
+    fov = 82
+    base_width = 864
+    base_height = 135
+    height = 136
+    width = 200
+    channels = 3
+    canvas = np.zeros(shape=(height, width, channels), dtype=np.float)
+
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
+    img /= 255.0
+
+    # rescale image to input size and position it to canvas center
+    new_w = int(base_width * (fov / 360.0))
+    new_w = new_w if new_w % 2 == 0 else new_w - 1
+    new_h = int((img.shape[0] / img.shape[1]) * new_w)
+    new_h = new_h if new_h % 2 == 0 else new_h - 1
+    img = cv2.resize(img, (new_w, new_h))
+
+    # define padding borders
+    tb_border = (canvas.shape[0] - new_h) // 2  # top/bottom border
+    lr_border = (canvas.shape[1] - new_w) // 2  # left/right border
+
+    # fit image into canvas
+    canvas[tb_border : canvas.shape[0] - tb_border, lr_border : canvas.shape[1] - lr_border, :] = img
+
+    return canvas
+
+
+def draw_bboxes_BEV(batch_size: np.ndarray, preds: torch.Tensor, fovx: float = 25.0 * 3.33) -> None:
+    """draw predictions in BEV to BEV map
+
+    Args:
+        batch_size (np.ndarray): batch size
+        preds (torch.Tensor): predictions of the network
+        fovx (float, optional): number of cells on x axis * degree per cell. Defaults to 25.0*3.33.
+    """
     plane_BEV = plt.imread("./extra_utils/BEV_plane.png")
     origin = (plane_BEV.shape[0] // 2, plane_BEV.shape[1] // 2)
 
@@ -420,9 +457,11 @@ def draw_bboxes_BEV(batch: np.ndarray, preds: torch.Tensor, overlap_gt=False, fo
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
-    for i, img in enumerate(batch):
-        pred = preds[i]
+    for i in range(batch_size):
+        mask = preds[:, 0] == float(i)
+        pred = preds[mask][:, 1:]
         patches = []
+        points = []
 
         for j, box in enumerate(pred):
             x = (box[1] * math.sin(math.radians(box[0]))) + origin[0]
@@ -439,23 +478,28 @@ def draw_bboxes_BEV(batch: np.ndarray, preds: torch.Tensor, overlap_gt=False, fo
                 )
             )  # minus degree because of right hand rule
 
-        # save image
-        plt.imsave(os.path.join(save_dir, str(i) + ".png"), img)
+            verts = patches[-1].get_verts()
+            points.append(
+                [
+                    ((verts[2][0] - verts[1][0]) / 2) + verts[1][0],
+                    ((verts[2][1] - verts[1][1]) / 2) + verts[1][1],
+                ]
+            )
 
         # draw and save BEV
-        plane_BEV = plt.imread("./extra_utils/BEV_plane.png")
         fig, ax = plt.subplots(1)
         ax.set_aspect("equal")
         ax.imshow(plane_BEV, origin="lower")
+        ax.scatter(np.array(points)[:, 0], np.array(points)[:, 1], color="blue", s=2)
         for rect in patches:
             ax.add_patch(rect)
-        plt.savefig(os.path.join(save_dir, str(i) + "_.png"))
+        plt.savefig(os.path.join(save_dir, str(i) + ".png"))
 
 
 def nms_BEV(
     prediction: torch.Tensor,
-    obj_thresh: float = 0.3,
-    nms_thresh: float = 0.6,
+    obj_thresh: float = 0.5,
+    nms_thresh: float = 0.5,
     verbose: bool = True,
     iou_type="IoU",
 ) -> Any:
@@ -497,7 +541,8 @@ def nms_BEV(
             max_conf, max_conf_idx = torch.max(sample_pred[:, 6].view(-1, 1), 1)
         max_conf = max_conf.float().unsqueeze(1)
         max_conf_idx = max_conf_idx.float().unsqueeze(1)
-        sample_pred = torch.cat((sample_pred[:, :7], max_conf, max_conf_idx), dim=1)
+        i = 7 if len(sample_pred[0]) > 7 else 6
+        sample_pred = torch.cat((sample_pred[:, :i], max_conf, max_conf_idx), dim=1)
 
         # remove non zeros tuples over obj_thresholding
         non_zero_mask = torch.nonzero(sample_pred[:, 6])
