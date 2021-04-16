@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch import optim
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from easydict import EasyDict as edict
 from tool.utils import my_IoU
 
