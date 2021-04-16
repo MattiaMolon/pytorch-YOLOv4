@@ -7,11 +7,11 @@ Cfg = EasyDict()
 
 Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat.cfg")
 
-Cfg.epochs = 300
+Cfg.epochs = 150
 Cfg.batch = 64
 Cfg.subdivisions = 16
-Cfg.width = 200
-Cfg.height = 136
+Cfg.width = 312
+Cfg.height = 96
 Cfg.channels = 3
 Cfg.momentum = 0.949
 Cfg.decay = 0.0005
@@ -29,8 +29,8 @@ Cfg.scales = 0.1, 0.1
 
 # BEV params
 Cfg.num_predictors = 20
-Cfg.cell_angle = 3.33
-Cfg.cell_depth = 5
+Cfg.cell_angle = 2.102
+Cfg.cell_depth = 5.0
 Cfg.anchors = 1.64, 3.93
 Cfg.num_anchors = 1
 

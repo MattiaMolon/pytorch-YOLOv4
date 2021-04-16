@@ -15,7 +15,8 @@ from tensorboardX import SummaryWriter
 from easydict import EasyDict as edict
 
 from dataset import Yolo_BEV_dataset
-from cfg.train.cfg_yolov4_BEV_flat import Cfg
+from cfg.train.cfg_yolov4_BEV_flat_KITTI_canvas import Cfg
+import pandas as pd
 
 from tool.darknet2pytorch import Darknet
 
@@ -45,7 +46,7 @@ class Yolo_loss(nn.Module):
 
         # constants
         self.lambda_xy = 10
-        self.lambda_wl = 10
+        self.lambda_wl = 1
         self.lambda_rot = 10
         self.lambda_obj = 10
         self.lambda_noobj = 1
@@ -321,7 +322,7 @@ def train(
                         labels = batch[1]
 
                         # compute loss
-                        labels_pred = model(images)[0]
+                        labels_pred = model(images)[0].detach()
                         loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(
                             labels_pred, labels
                         )
@@ -329,7 +330,7 @@ def train(
                         eval_loss_xy += loss_xy.item()
                         eval_loss_wl += loss_wl.item()
                         eval_loss_rot += loss_rot.item()
-                        eval_loss_rot += loss_obj.item()
+                        eval_loss_obj += loss_obj.item()
                         eval_loss_noobj += loss_noobj.item()
 
                         val_i += images.shape[0]
@@ -357,24 +358,24 @@ def train(
 
                 del eval_model
 
-            # save checkpoint
-            if save_cp and eval_loss < min_eval_loss:
-                min_eval_loss = eval_loss
-                try:
-                    os.makedirs(config.checkpoints, exist_ok=True)
-                    logging.info("Created checkpoint directory")
-                except OSError:
-                    pass
-                save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
-                torch.save(model.state_dict(), save_path)
-                logging.info(f"Checkpoint {epoch + 1} saved !")
-                saved_models.append(save_path)
-                if len(saved_models) > config.keep_checkpoint_max > 0:
-                    model_to_remove = saved_models.popleft()
+                # save checkpoint
+                if save_cp and eval_loss < min_eval_loss:
+                    min_eval_loss = eval_loss
                     try:
-                        os.remove(model_to_remove)
-                    except:
-                        logging.info(f"failed to remove {model_to_remove}")
+                        os.makedirs(config.checkpoints, exist_ok=True)
+                        logging.info("Created checkpoint directory")
+                    except OSError:
+                        pass
+                    save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
+                    torch.save(model.state_dict(), save_path)
+                    logging.info(f"Checkpoint {epoch + 1} saved !")
+                    saved_models.append(save_path)
+                    if len(saved_models) > config.keep_checkpoint_max > 0:
+                        model_to_remove = saved_models.popleft()
+                        try:
+                            os.remove(model_to_remove)
+                        except:
+                            logging.info(f"failed to remove {model_to_remove}")
 
     writer.close()
 

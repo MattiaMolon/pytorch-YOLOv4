@@ -148,8 +148,8 @@ def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> to
         other_ = other[:, :5]
 
         # angle defined as torch.atan2(x, y) -> torch.atan2(cos,sin)
-        box1_[:, 4] = torch.atan2(box1[:, 4], box1[:, 5])
-        other_[:, 4] = torch.atan2(other[:, 4], other[:, 5])
+        box1_[:, 4] = torch.atan2(box1[:, 5], box1[:, 4])
+        other_[:, 4] = torch.atan2(other[:, 5], other[:, 4])
 
         # transform boxes into polygons
         box1_ = [rect_polygon(*r) for r in box1_]
@@ -412,88 +412,119 @@ class RotatingRectangle(Rectangle):
         self._apply_rotation()
 
 
-def preprocess_KITTI_input(img):
+def preprocess_KITTI_input(img, input_type="KITTI_basic"):
     # Kitti params
     fov = 82
     base_width = 864
     base_height = 135
-    height = 136
-    width = 200
-    channels = 3
-    canvas = np.zeros(shape=(height, width, channels), dtype=np.float)
 
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
-    img /= 255.0
+    if input_type == "KITTI_canvas":
+        height = 136
+        width = 200
+        channels = 3
+        canvas = np.zeros(shape=(height, width, channels), dtype=np.float)
 
-    # rescale image to input size and position it to canvas center
-    new_w = int(base_width * (fov / 360.0))
-    new_w = new_w if new_w % 2 == 0 else new_w - 1
-    new_h = int((img.shape[0] / img.shape[1]) * new_w)
-    new_h = new_h if new_h % 2 == 0 else new_h - 1
-    img = cv2.resize(img, (new_w, new_h))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
+        img /= 255.0
 
-    # define padding borders
-    tb_border = (canvas.shape[0] - new_h) // 2  # top/bottom border
-    lr_border = (canvas.shape[1] - new_w) // 2  # left/right border
+        # rescale image to input size and position it to canvas center
+        new_w = int(base_width * (fov / 360.0))
+        new_w = new_w if new_w % 2 == 0 else new_w - 1
+        new_h = int((img.shape[0] / img.shape[1]) * new_w)
+        new_h = new_h if new_h % 2 == 0 else new_h - 1
+        img = cv2.resize(img, (new_w, new_h))
 
-    # fit image into canvas
-    canvas[tb_border : canvas.shape[0] - tb_border, lr_border : canvas.shape[1] - lr_border, :] = img
+        # define padding borders
+        tb_border = (canvas.shape[0] - new_h) // 2  # top/bottom border
+        lr_border = (canvas.shape[1] - new_w) // 2  # left/right border
 
-    return canvas
+        # fit image into canvas
+        canvas[tb_border : canvas.shape[0] - tb_border, lr_border : canvas.shape[1] - lr_border, :] = img
+
+        return canvas
+
+    elif input_type == "KITTI_basic":
+        height = 96
+        width = 312
+        channels = 3
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
+        img = cv2.resize(img, (width, height))
+        img /= 255.0
+
+        return img
 
 
-def draw_bboxes_BEV(batch_size: np.ndarray, preds: torch.Tensor, fovx: float = 25.0 * 3.33) -> None:
+def draw_bboxes_BEV(
+    batch_size: np.ndarray, preds: torch.Tensor, fovx: float = 25.0 * 3.33, names: List[str] = None
+) -> None:
     """draw predictions in BEV to BEV map
 
     Args:
         batch_size (np.ndarray): batch size
         preds (torch.Tensor): predictions of the network
         fovx (float, optional): number of cells on x axis * degree per cell. Defaults to 25.0*3.33.
+        names (List[str], optional): names of images
     """
-    plane_BEV = plt.imread("./extra_utils/BEV_plane.png")
-    origin = (plane_BEV.shape[0] // 2, plane_BEV.shape[1] // 2)
-
     save_dir = os.path.join(os.path.abspath("."), "predictions")
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
+    plane_BEV = plt.imread("./tool_extra/BEV_plane.png")
+    origin = (plane_BEV.shape[0] // 2, plane_BEV.shape[1] // 2)
+
+    # exit if preds are None
+    if preds is None:
+        for i in range(batch_size):
+            plt.imsave(os.path.join(save_dir, names[i] + ".png"), plane_BEV)
+        return
+
     for i in range(batch_size):
-        mask = preds[:, 0] == float(i)
-        pred = preds[mask][:, 1:]
-        patches = []
-        points = []
 
-        for j, box in enumerate(pred):
-            x = (box[1] * math.sin(math.radians(box[0]))) + origin[0]
-            z = (box[1] * math.cos(math.radians(box[0]))) + origin[1]
-            patches.append(
-                RotatingRectangle(
-                    (x, z),
-                    width=box[3],
-                    height=box[2],
-                    rel_point_of_rot=(box[3] / 2, box[2] / 2),
-                    angle=-math.degrees(math.atan2(box[4], box[5])),
-                    color="red",
-                    fill=False,
-                )
-            )  # minus degree because of right hand rule
-
-            verts = patches[-1].get_verts()
-            points.append(
-                [
-                    ((verts[2][0] - verts[1][0]) / 2) + verts[1][0],
-                    ((verts[2][1] - verts[1][1]) / 2) + verts[1][1],
-                ]
-            )
-
-        # draw and save BEV
         fig, ax = plt.subplots(1)
         ax.set_aspect("equal")
         ax.imshow(plane_BEV, origin="lower")
-        ax.scatter(np.array(points)[:, 0], np.array(points)[:, 1], color="blue", s=2)
-        for rect in patches:
-            ax.add_patch(rect)
-        plt.savefig(os.path.join(save_dir, str(i) + ".png"))
+        name = str(i) if names is None else names[i]
+
+        if np.isin(preds[:, 0], float(i)).any():
+            mask = preds[:, 0] == float(i)
+            pred = preds[mask][:, 1:]
+            patches = []
+            points = []
+
+            for j, box in enumerate(pred):
+                if abs(box[3]) >= 20.0 or abs(box[2]) >= 20.0:
+                    continue
+                x = (box[1] * math.sin(math.radians(box[0]))) + origin[0]
+                z = (box[1] * math.cos(math.radians(box[0]))) + origin[1]
+                patches.append(
+                    RotatingRectangle(
+                        (x, z),
+                        width=box[3],
+                        height=box[2],
+                        rel_point_of_rot=(box[3] / 2, box[2] / 2),
+                        angle=-math.degrees(math.atan2(box[4], box[5])),
+                        color="red",
+                        fill=False,
+                    )
+                )  # minus degree because of right hand rule
+
+                verts = patches[-1].get_verts()
+                points.append(
+                    [
+                        ((verts[2][0] - verts[1][0]) / 2) + verts[1][0],
+                        ((verts[2][1] - verts[1][1]) / 2) + verts[1][1],
+                    ]
+                )
+
+            # draw on BEV map
+            if len(points) > 0:
+                ax.scatter(np.array(points)[:, 0], np.array(points)[:, 1], color="blue", s=2)
+            for rect in patches:
+                ax.add_patch(rect)
+
+        plt.savefig(os.path.join(save_dir, name + ".png"))
+        plt.close(fig)
 
 
 def nms_BEV(
@@ -503,7 +534,7 @@ def nms_BEV(
     verbose: bool = True,
     iou_type="IoU",
 ) -> Any:
-    """Aplly nms with rotation generalized IoU (rgIoU)
+    """Apply nms with rotation generalized IoU (rgIoU)
 
     Args:
         prediction (torch.Tensor): output of yolov4_BEV
@@ -532,7 +563,7 @@ def nms_BEV(
 
     # loop the batch samples
     output_final = None
-    for batch_id, sample_pred in tqdm(enumerate(prediction[:]), desc="Batch"):
+    for batch_id, sample_pred in enumerate(prediction[:]):
 
         # instead of using all the classes, I substitute with max_conf and max_conf_idx
         if len(sample_pred[0]) > 7:
@@ -561,6 +592,8 @@ def nms_BEV(
             sample_pred_cls = sample_pred_cls[non_zero_mask]
 
             # order bboxes by confidence score for NMS
+            if len(sample_pred_cls.shape) == 1:
+                sample_pred_cls = sample_pred_cls.unsqueeze(0)
             conf_sort_idx = torch.argsort(sample_pred_cls[:, -3], descending=True)
             sample_pred_cls = sample_pred_cls[conf_sort_idx]
 
@@ -578,6 +611,8 @@ def nms_BEV(
                     break
                 except IndexError:
                     break
+                except Exception:
+                    break
 
                 # remove tuples with less than NMS threshold of iou_score
                 nms_mask = (iou_score < nms_thresh).float().unsqueeze(1)
@@ -586,6 +621,8 @@ def nms_BEV(
                 sample_pred_cls = sample_pred_cls[nms_mask_id]
 
             # concatenate to output_final
+            if len(sample_pred_cls.shape) == 1:
+                sample_pred_cls = sample_pred_cls.unsqueeze(0)
             batch_id_tensor = torch.Tensor([batch_id]).repeat(sample_pred_cls.size(0)).unsqueeze(1)
             tmp_out = torch.cat((batch_id_tensor, sample_pred_cls), dim=1)
 

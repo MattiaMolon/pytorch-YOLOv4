@@ -120,7 +120,7 @@ class Darknet(nn.Module):
         # get net params
         self.width = int(self.blocks[0]["width"])
         self.height = int(self.blocks[0]["height"])
-        self.cell_depth = int(self.blocks[0]["cell_depth"])
+        self.cell_depth = float(self.blocks[0]["cell_depth"])
         self.cell_angle = float(self.blocks[0]["cell_angle"])
         # anchors are defined [W,H] for Yolov4 and [H,W] for other models
         self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
