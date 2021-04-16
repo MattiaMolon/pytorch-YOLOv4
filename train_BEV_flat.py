@@ -327,132 +327,135 @@ def train(
             writer.add_scalar("Epoch/mean_loss", epoch_loss / n_train, epoch)
 
             # evaluate models
-            if epoch % 2 == 0:
-                eval_model_loss = Darknet(cfg.cfgfile, model_type="BEV_flat")
-                eval_model_AP = Darknet(cfg.cfgfile, inference=True, model_type="BEV_flat")
-                if torch.cuda.device_count() > 1:
-                    eval_model_loss.load_state_dict(model.module.state_dict())
-                    eval_model_AP.load_state_dict(model.module.state_dict())
-                else:
-                    eval_model_loss.load_state_dict(model.state_dict())
-                    eval_model_AP.load_state_dict(model.state_dict())
-                eval_model_loss.to(device)
-                eval_model_AP.to(device)
-                eval_model_AP.eval()
+            with torch.no_grad():
+                if epoch % 2 == 0:
+                    eval_model_loss = Darknet(cfg.cfgfile, model_type="BEV_flat")
+                    eval_model_AP = Darknet(cfg.cfgfile, inference=True, model_type="BEV_flat")
+                    if torch.cuda.device_count() > 1:
+                        eval_model_loss.load_state_dict(model.module.state_dict())
+                        eval_model_AP.load_state_dict(model.module.state_dict())
+                    else:
+                        eval_model_loss.load_state_dict(model.state_dict())
+                        eval_model_AP.load_state_dict(model.state_dict())
+                    eval_model_loss.to(device)
+                    eval_model_AP.to(device)
+                    eval_model_AP.eval()
 
-                eval_loss = 0.0
-                eval_loss_xy = 0.0
-                eval_loss_wl = 0.0
-                eval_loss_rot = 0.0
-                eval_loss_obj = 0.0
-                eval_loss_noobj = 0.0
+                    eval_loss = 0.0
+                    eval_loss_xy = 0.0
+                    eval_loss_wl = 0.0
+                    eval_loss_rot = 0.0
+                    eval_loss_obj = 0.0
+                    eval_loss_noobj = 0.0
 
-                print("\nEvaluating...")
-                n_gt = 0
-                df_preds = pd.DataFrame(columns=["conf", "correct"])
-                for i, batch in enumerate(val_loader):
+                    print("\nEvaluating...")
+                    n_gt = 0
+                    df_preds = pd.DataFrame(columns=["conf", "correct"])
+                    for i, batch in enumerate(val_loader):
 
-                    # get batch
-                    global_step += 1
-                    epoch_step += 1
-                    images = batch[0].float().to(device=device)
-                    labels = batch[1]
+                        # get batch
+                        global_step += 1
+                        epoch_step += 1
+                        images = batch[0].float().to(device=device)
+                        labels = batch[1]
 
-                    # compute loss
-                    labels_pred = eval_model_loss(images)[0].detach()
-                    loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(labels_pred, labels)
-                    eval_loss += loss.item()
-                    eval_loss_xy += loss_xy.item()
-                    eval_loss_wl += loss_wl.item()
-                    eval_loss_rot += loss_rot.item()
-                    eval_loss_obj += loss_obj.item()
-                    eval_loss_noobj += loss_noobj.item()
+                        # compute loss
+                        labels_pred = eval_model_loss(images)[0].detach()
+                        loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(
+                            labels_pred, labels
+                        )
+                        eval_loss += loss.item()
+                        eval_loss_xy += loss_xy.item()
+                        eval_loss_wl += loss_wl.item()
+                        eval_loss_rot += loss_rot.item()
+                        eval_loss_obj += loss_obj.item()
+                        eval_loss_noobj += loss_noobj.item()
 
-                    # TODO: fix this double inference
-                    # save tuple to compute AP
-                    preds_AP = eval_model_AP(images).detach()
+                        # TODO: fix this double inference
+                        # save tuple to compute AP
+                        preds_AP = eval_model_AP(images).detach()
 
-                    for pred_id, preds in enumerate(preds_AP):
-                        label = labels[pred_id]
-                        n_gt = n_gt if label[0][-1] == -1 else n_gt + len(label)
+                        for pred_id, preds in enumerate(preds_AP):
+                            label = labels[pred_id]
+                            n_gt = n_gt if label[0][-1] == -1 else n_gt + len(label)
 
-                        mask_conf = torch.nonzero((preds[:, -1] >= cfg.conf_thresh).float()).squeeze()
-                        preds = preds[mask_conf]
-                        if preds.shape[0] == 0:
-                            continue
-                        if len(preds.shape) == 1:
-                            preds = preds.unsqueeze(0)
+                            mask_conf = torch.nonzero((preds[:, -1] >= cfg.conf_thresh).float()).squeeze()
+                            preds = preds[mask_conf]
+                            if preds.shape[0] == 0:
+                                continue
+                            if len(preds.shape) == 1:
+                                preds = preds.unsqueeze(0)
 
-                        if label[0][-1] == -1:
-                            for pred in preds:
-                                df_preds = df_preds.append(
-                                    pd.Series({"conf": pred[-1].item(), "correct": 0.0}),
-                                    ignore_index=True,
-                                )
-                        else:
-                            for pred in preds:
-                                try:
-                                    iou_scores = my_IoU(
-                                        pred.unsqueeze(0),
-                                        torch.Tensor(label),
-                                        cfg.iou_type,
+                            if label[0][-1] == -1:
+                                for pred in preds:
+                                    df_preds = df_preds.append(
+                                        pd.Series({"conf": pred[-1].item(), "correct": 0.0}),
+                                        ignore_index=True,
                                     )
-                                except Exception:
-                                    break
+                            else:
+                                for pred in preds:
+                                    try:
+                                        iou_scores = my_IoU(
+                                            pred.unsqueeze(0),
+                                            torch.Tensor(label),
+                                            cfg.iou_type,
+                                        )
+                                    except Exception:
+                                        break
 
-                                correct = (iou_scores >= cfg.iou_thresh).any().float().item()
-                                df_preds = df_preds.append(
-                                    pd.Series({"conf": pred[-1].item(), "correct": correct}),
-                                    ignore_index=True,
-                                )
+                                    correct = (iou_scores >= cfg.iou_thresh).any().float().item()
+                                    df_preds = df_preds.append(
+                                        pd.Series({"conf": pred[-1].item(), "correct": correct}),
+                                        ignore_index=True,
+                                    )
 
-                # compute AP
-                df_preds.astype({"conf": float, "correct": float})
-                val_AP = compute_AP(df_preds, n_gt)
+                    # compute AP
+                    df_preds.astype({"conf": float, "correct": float})
+                    val_AP = compute_AP(df_preds, n_gt)
 
-                # log
-                logging.debug(
-                    "Val step_{} -> loss : {}, loss xy : {}, loss wl : {},"
-                    " loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(
-                        global_step,
-                        eval_loss,
-                        eval_loss_xy,
-                        eval_loss_wl,
-                        eval_loss_rot,
-                        eval_loss_obj,
-                        eval_loss_noobj,
-                        scheduler.get_lr()[0] * config.batch,
+                    # log
+                    logging.debug(
+                        "Val step_{} -> loss : {}, loss xy : {}, loss wl : {},"
+                        " loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(
+                            global_step,
+                            eval_loss,
+                            eval_loss_xy,
+                            eval_loss_wl,
+                            eval_loss_rot,
+                            eval_loss_obj,
+                            eval_loss_noobj,
+                            scheduler.get_lr()[0] * config.batch,
+                        )
                     )
-                )
-                writer.add_scalar("val/Loss", eval_loss, epoch)
-                writer.add_scalar("val/loss_xy", eval_loss_xy, epoch)
-                writer.add_scalar("val/loss_wl", eval_loss_wl, epoch)
-                writer.add_scalar("val/loss_rot", eval_loss_rot, epoch)
-                writer.add_scalar("val/loss_obj", eval_loss_obj, epoch)
-                writer.add_scalar("val/loss_noobj", eval_loss_noobj, epoch)
-                writer.add_scalar("val/AP", val_AP, epoch)
+                    writer.add_scalar("val/Loss", eval_loss, epoch)
+                    writer.add_scalar("val/loss_xy", eval_loss_xy, epoch)
+                    writer.add_scalar("val/loss_wl", eval_loss_wl, epoch)
+                    writer.add_scalar("val/loss_rot", eval_loss_rot, epoch)
+                    writer.add_scalar("val/loss_obj", eval_loss_obj, epoch)
+                    writer.add_scalar("val/loss_noobj", eval_loss_noobj, epoch)
+                    writer.add_scalar("val/AP", val_AP, epoch)
 
-                del eval_model_loss, eval_model_AP, df_preds
+                    del eval_model_loss, eval_model_AP, df_preds
 
-                # save checkpoint
-                if save_cp and eval_loss < min_eval_loss and val_AP > max_AP:
-                    max_AP = val_AP
-                    min_eval_loss = eval_loss
-                    try:
-                        os.makedirs(config.checkpoints, exist_ok=True)
-                        logging.info("Created checkpoint directory")
-                    except OSError:
-                        pass
-                    save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
-                    torch.save(model.state_dict(), save_path)
-                    logging.info(f"Checkpoint {epoch + 1} saved !")
-                    saved_models.append(save_path)
-                    if len(saved_models) > config.keep_checkpoint_max > 0:
-                        model_to_remove = saved_models.popleft()
+                    # save checkpoint
+                    if save_cp and eval_loss < min_eval_loss and val_AP > max_AP:
+                        max_AP = val_AP
+                        min_eval_loss = eval_loss
                         try:
-                            os.remove(model_to_remove)
-                        except:
-                            logging.info(f"failed to remove {model_to_remove}")
+                            os.makedirs(config.checkpoints, exist_ok=True)
+                            logging.info("Created checkpoint directory")
+                        except OSError:
+                            pass
+                        save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
+                        torch.save(model.state_dict(), save_path)
+                        logging.info(f"Checkpoint {epoch + 1} saved !")
+                        saved_models.append(save_path)
+                        if len(saved_models) > config.keep_checkpoint_max > 0:
+                            model_to_remove = saved_models.popleft()
+                            try:
+                                os.remove(model_to_remove)
+                            except:
+                                logging.info(f"failed to remove {model_to_remove}")
 
     writer.close()
 
