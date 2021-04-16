@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from torch import optim
 from tensorboardX import SummaryWriter
 from easydict import EasyDict as edict
+from tool.utils import my_IoU
 
 from dataset import Yolo_BEV_dataset
 from cfg.train.cfg_yolov4_BEV_flat_KITTI_canvas import Cfg
@@ -46,9 +47,9 @@ class Yolo_loss(nn.Module):
 
         # constants
         self.lambda_xy = 10
-        self.lambda_wl = 1
-        self.lambda_rot = 10
-        self.lambda_obj = 10
+        self.lambda_wl = 10
+        self.lambda_rot = 20
+        self.lambda_obj = 20
         self.lambda_noobj = 1
 
         # params
@@ -137,6 +138,36 @@ class Yolo_loss(nn.Module):
         )
 
         return loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj
+
+
+def compute_AP(df_preds, n_gt):
+    df_preds.sort_values("conf", ascending=False, inplace=True)
+
+    true_sum = 0
+    precision = []
+    recall = []
+    for i, value in enumerate(df_preds["correct"]):
+        true_sum += value
+        precision.append(true_sum / (i + 1))
+        recall.append(true_sum / n_gt)
+
+    # precision interpolation
+    for i in range(len(precision)):
+        if i < len(precision) - 1:
+            precision[i] = max(precision[i + 1 :])
+    precision = [1.0] + precision + [0.0, 0.0]
+    recall = [0.0] + recall + [recall[-1] + 1e-16, 1.0]
+
+    # computing interpolated AP (VOC format)
+    ap_voc = 0
+    prev_i, prev_prec = 0, precision[0]
+    for i, prec in enumerate(precision[1:]):
+        if prec < prev_prec:
+            ap_voc += (recall[i] - recall[prev_i]) * prev_prec
+            prev_i = i
+            prev_prec = prec
+
+    return ap_voc
 
 
 def train(
@@ -240,6 +271,7 @@ def train(
     saved_models = deque()
     model.train()
     min_eval_loss = math.inf
+    max_AP = 0.0
     for epoch in range(epochs):
         epoch_loss = 0
         epoch_step = 0
@@ -291,18 +323,22 @@ def train(
                 pbar.update(images.shape[0])
 
             # epochs log
-            writer.add_scalar("Epoch/loss", epoch_loss, epoch_step)
-            writer.add_scalar("Epoch/mean_loss", epoch_loss / n_train, epoch_step)
+            writer.add_scalar("Epoch/loss", epoch_loss, epoch)
+            writer.add_scalar("Epoch/mean_loss", epoch_loss / n_train, epoch)
 
             # evaluate models
             if epoch % 2 == 0:
-                eval_model = Darknet(cfg.cfgfile, inference=True, model_type="BEV_flat")
+                eval_model_loss = Darknet(cfg.cfgfile, model_type="BEV_flat")
+                eval_model_AP = Darknet(cfg.cfgfile, inference=True, model_type="BEV_flat")
                 if torch.cuda.device_count() > 1:
-                    eval_model.load_state_dict(model.module.state_dict())
+                    eval_model_loss.load_state_dict(model.module.state_dict())
+                    eval_model_AP.load_state_dict(model.module.state_dict())
                 else:
-                    eval_model.load_state_dict(model.state_dict())
-                eval_model.to(device)
-                eval_model.eval()
+                    eval_model_loss.load_state_dict(model.state_dict())
+                    eval_model_AP.load_state_dict(model.state_dict())
+                eval_model_loss.to(device)
+                eval_model_AP.to(device)
+                eval_model_AP.eval()
 
                 eval_loss = 0.0
                 eval_loss_xy = 0.0
@@ -312,28 +348,67 @@ def train(
                 eval_loss_noobj = 0.0
 
                 print("\nEvaluating...")
-                val_i = 0
-                while val_i < n_val:
-                    for i, batch in enumerate(val_loader):
-                        # get batch
-                        global_step += 1
-                        epoch_step += 1
-                        images = batch[0].float().to(device=device)
-                        labels = batch[1]
+                n_gt = 0
+                df_preds = pd.DataFrame(columns=["conf", "correct"])
+                for i, batch in enumerate(val_loader):
 
-                        # compute loss
-                        labels_pred = model(images)[0].detach()
-                        loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(
-                            labels_pred, labels
-                        )
-                        eval_loss += loss.item()
-                        eval_loss_xy += loss_xy.item()
-                        eval_loss_wl += loss_wl.item()
-                        eval_loss_rot += loss_rot.item()
-                        eval_loss_obj += loss_obj.item()
-                        eval_loss_noobj += loss_noobj.item()
+                    # get batch
+                    global_step += 1
+                    epoch_step += 1
+                    images = batch[0].float().to(device=device)
+                    labels = batch[1]
 
-                        val_i += images.shape[0]
+                    # compute loss
+                    labels_pred = eval_model_loss(images)[0].detach()
+                    loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(labels_pred, labels)
+                    eval_loss += loss.item()
+                    eval_loss_xy += loss_xy.item()
+                    eval_loss_wl += loss_wl.item()
+                    eval_loss_rot += loss_rot.item()
+                    eval_loss_obj += loss_obj.item()
+                    eval_loss_noobj += loss_noobj.item()
+
+                    # TODO: fix this double inference
+                    # save tuple to compute AP
+                    preds_AP = eval_model_AP(images).detach()
+
+                    for pred_id, preds in enumerate(preds_AP):
+                        label = labels[pred_id]
+                        n_gt = n_gt if label[0][-1] == -1 else n_gt + len(label)
+
+                        mask_conf = torch.nonzero((preds[:, -1] >= cfg.conf_thresh).float()).squeeze()
+                        preds = preds[mask_conf]
+                        if preds.shape[0] == 0:
+                            continue
+                        if len(preds.shape) == 1:
+                            preds = preds.unsqueeze(0)
+
+                        if label[0][-1] == -1:
+                            for pred in preds:
+                                df_preds = df_preds.append(
+                                    pd.Series({"conf": pred[-1].item(), "correct": 0.0}),
+                                    ignore_index=True,
+                                )
+                        else:
+                            for pred in preds:
+                                try:
+                                    iou_scores = my_IoU(
+                                        pred.unsqueeze(0),
+                                        torch.Tensor(label),
+                                        cfg.iou_type,
+                                    )
+                                except Exception:
+                                    break
+
+                                correct = (iou_scores >= cfg.iou_thresh).any().float().item()
+                                df_preds = df_preds.append(
+                                    pd.Series({"conf": pred[-1].item(), "correct": correct}),
+                                    ignore_index=True,
+                                )
+
+                # compute AP
+                df_preds.astype({"conf": float, "correct": float})
+                val_AP = compute_AP(df_preds, n_gt)
 
                 # log
                 logging.debug(
@@ -355,11 +430,13 @@ def train(
                 writer.add_scalar("val/loss_rot", eval_loss_rot, epoch)
                 writer.add_scalar("val/loss_obj", eval_loss_obj, epoch)
                 writer.add_scalar("val/loss_noobj", eval_loss_noobj, epoch)
+                writer.add_scalar("val/AP", val_AP, epoch)
 
-                del eval_model
+                del eval_model_loss, eval_model_AP, df_preds
 
                 # save checkpoint
-                if save_cp and eval_loss < min_eval_loss:
+                if save_cp and eval_loss < min_eval_loss and val_AP > max_AP:
+                    max_AP = val_AP
                     min_eval_loss = eval_loss
                     try:
                         os.makedirs(config.checkpoints, exist_ok=True)

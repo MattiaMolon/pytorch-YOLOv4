@@ -5,24 +5,30 @@ _BASE_DIR = os.path.abspath(".")
 
 Cfg = EasyDict()
 
+# paths
+Cfg.checkpoints = os.path.join(_BASE_DIR, "checkpoints")
+Cfg.TRAIN_TENSORBOARD_DIR = os.path.join(_BASE_DIR, "log")
 Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat.cfg")
 
-Cfg.epochs = 150
-Cfg.batch = 64
-Cfg.subdivisions = 16
+# input_dim
 Cfg.width = 312
 Cfg.height = 96
 Cfg.channels = 3
+
+# training params
+Cfg.epochs = 300
+Cfg.batch = 64
+Cfg.subdivisions = 16
+Cfg.max_batches = 500500
+
+# optimizer
+Cfg.TRAIN_OPTIMIZER = "adam"
+
+# learning rate
+Cfg.learning_rate = 0.00261
 Cfg.momentum = 0.949
 Cfg.decay = 0.0005
-Cfg.angle = 0
-Cfg.saturation = 1.5
-Cfg.exposure = 1.5
-Cfg.hue = 0.1
-
-Cfg.learning_rate = 0.00261
 Cfg.burn_in = 1000
-Cfg.max_batches = 500500
 Cfg.steps = [400000, 450000]
 Cfg.policy = Cfg.steps
 Cfg.scales = 0.1, 0.1
@@ -34,32 +40,10 @@ Cfg.cell_depth = 5.0
 Cfg.anchors = 1.64, 3.93
 Cfg.num_anchors = 1
 
-# data augmentation
-Cfg.cutmix = 0
-Cfg.mosaic = 1
-
-Cfg.letter_box = 0
-Cfg.jitter = 0.2
-Cfg.classes = 80
-Cfg.track = 0
-Cfg.w = Cfg.width
-Cfg.h = Cfg.height
-Cfg.flip = 1
-Cfg.blur = 0
-Cfg.gaussian = 0
-Cfg.boxes = 60  # box num
-Cfg.TRAIN_OPTIMIZER = "adam"
-
-if Cfg.mosaic and Cfg.cutmix:
-    Cfg.mixup = 4
-elif Cfg.cutmix:
-    Cfg.mixup = 2
-elif Cfg.mosaic:
-    Cfg.mixup = 3
-
-Cfg.checkpoints = os.path.join(_BASE_DIR, "checkpoints")
-Cfg.TRAIN_TENSORBOARD_DIR = os.path.join(_BASE_DIR, "log")
-
+# validation
 Cfg.iou_type = "rgIoU"  # ['IoU', 'gIoU', 'rIoU', 'gIoU']
+Cfg.conf_thresh = 0.5
+Cfg.iou_thresh = 0.2
 
+# extra
 Cfg.keep_checkpoint_max = 5

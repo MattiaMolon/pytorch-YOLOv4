@@ -99,7 +99,7 @@ if __name__ == "__main__":
                 for pred in preds:
                     try:
                         iou_scores = my_IoU(
-                            pred.unsqueeze(0), torch.from_numpy(gts[gts.columns[1:]].to_numpy()), "rIoU"
+                            pred.unsqueeze(0), torch.from_numpy(gts[gts.columns[1:]].to_numpy()), iou_type
                         )
                     except Exception:
                         break
