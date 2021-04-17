@@ -41,8 +41,8 @@ Cfg.anchors = 1.64, 3.93
 Cfg.num_anchors = 1
 
 # validation
-Cfg.iou_type = "rgIoU"  # ['IoU', 'gIoU', 'rIoU', 'gIoU']
-Cfg.conf_thresh = 0.5
+Cfg.iou_type = "rIoU"  # ['IoU', 'gIoU', 'rIoU', 'gIoU']
+Cfg.conf_thresh = 0.6
 Cfg.iou_thresh = 0.2
 
 # extra

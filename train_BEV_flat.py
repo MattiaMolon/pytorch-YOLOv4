@@ -267,7 +267,6 @@ def train(
     )
 
     # start training
-    save_prefix = "Yolov4_BEV_flat_epoch"
     saved_models = deque()
     model.train()
     min_eval_loss = math.inf
@@ -379,7 +378,9 @@ def train(
                             label = labels[pred_id]
                             n_gt = n_gt if label[0][-1] == -1 else n_gt + len(label)
 
-                            mask_conf = torch.nonzero((preds[:, -1] >= cfg.conf_thresh).float()).squeeze()
+                            mask_conf = (
+                                torch.nonzero((preds[:, -1] >= cfg.conf_thresh).float()).squeeze().to(device)
+                            )
                             preds = preds[mask_conf]
                             if preds.shape[0] == 0:
                                 continue
@@ -399,6 +400,7 @@ def train(
                                             pred.unsqueeze(0),
                                             torch.Tensor(label),
                                             cfg.iou_type,
+                                            cfg.device,
                                         )
                                     except Exception:
                                         break
@@ -438,7 +440,7 @@ def train(
                     del eval_model_loss, eval_model_AP, df_preds
 
                     # save checkpoint
-                    if save_cp and eval_loss < min_eval_loss and val_AP > max_AP:
+                    if save_cp and ((eval_loss < min_eval_loss and val_AP > max_AP) or epoch % 10 == 0):
                         max_AP = val_AP
                         min_eval_loss = eval_loss
                         try:
@@ -446,7 +448,9 @@ def train(
                             logging.info("Created checkpoint directory")
                         except OSError:
                             pass
-                        save_path = os.path.join(config.checkpoints, f"{save_prefix}{epoch + 1}.pth")
+                        save_path = os.path.join(
+                            config.checkpoints, f"{cfg.save_prefix}_epoch{epoch + 1}_{cfg.save_postfix}.pth"
+                        )
                         torch.save(model.state_dict(), save_path)
                         logging.info(f"Checkpoint {epoch + 1} saved !")
                         saved_models.append(save_path)
@@ -470,6 +474,26 @@ def get_args(**kwargs) -> dict:
     parser = argparse.ArgumentParser(
         description="Train the Model on images and target masks",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-spost",
+        "--save_postfix",
+        metavar="save_postfix",
+        type=str,
+        nargs="?",
+        default="",
+        help="postfix for saved files' names",
+        dest="save_postfix",
+    )
+    parser.add_argument(
+        "-spre",
+        "--save_prefix",
+        metavar="save_prefix",
+        type=str,
+        nargs="?",
+        default="Yolo_BEV_flat_canvas",
+        help="prefix for saved files' names",
+        dest="save_prefix",
     )
     parser.add_argument(
         "-lr",

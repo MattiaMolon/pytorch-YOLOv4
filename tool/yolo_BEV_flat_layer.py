@@ -10,6 +10,7 @@ def yolo_BEV_flat_forward(
     prediction: torch.Tensor,
     num_anchors: int,
     num_predictors: int,
+    device: str,
 ) -> torch.Tensor:
     """Forward pass of Yolo_BEV_flat, obtain bboxes inside feature map.
 
@@ -35,7 +36,7 @@ def yolo_BEV_flat_forward(
 
     # first element: bx = (sigm(tx) + Cx)*cell_angle -> cell_angle applied in post processing
     prediction[..., 0:1] = torch.sigmoid(prediction[..., 0:1])
-    x_offset = torch.from_numpy(np.arange(row_size)).float()
+    x_offset = torch.from_numpy(np.arange(row_size)).float().to(device)
     x_offset = (
         x_offset.view(-1, 1)
         .repeat(1, num_predictors * num_anchors)
@@ -45,7 +46,7 @@ def yolo_BEV_flat_forward(
 
     # element 2: by = (sigm(ty) + Cy)*cell_depth -> cell_depth applied in post processing
     prediction[..., 1:2] = torch.sigmoid(prediction[..., 1:2])
-    y_offset = torch.from_numpy(np.arange(num_predictors)).float()
+    y_offset = torch.from_numpy(np.arange(num_predictors)).float().to(device)
     y_offset = y_offset.repeat(row_size, num_anchors).view(num_predictors * num_anchors * row_size, 1)
     prediction[..., 1:2] += y_offset
 
@@ -66,13 +67,7 @@ class YoloBEVFlatLayer(nn.Module):
     read the last convolutional layer and return the bboxes in the BEV space
     """
 
-    def __init__(
-        self,
-        num_classes=0,
-        num_anchors=1,
-        num_predictors=4,
-        model_out=False,
-    ):
+    def __init__(self, num_classes=0, num_anchors=1, num_predictors=4, model_out=False, device="cpu"):
         super(YoloBEVFlatLayer, self).__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
@@ -83,6 +78,7 @@ class YoloBEVFlatLayer(nn.Module):
         self.class_scale = 1
         self.thresh = 0.6
         self.seen = 0
+        self.device = device
 
         self.model_out = model_out
 
@@ -91,4 +87,4 @@ class YoloBEVFlatLayer(nn.Module):
             return output
 
         # Apply activation functions over predictions
-        return yolo_BEV_flat_forward(output, self.num_anchors, self.num_predictors)
+        return yolo_BEV_flat_forward(output, self.num_anchors, self.num_predictors, self.device)

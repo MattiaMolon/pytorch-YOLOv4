@@ -14,22 +14,23 @@ else:
 
 # params
 input_type = "KITTI_canvas"
+checkpoint_dir = "KITTI_canvas_freeze"
 train_dir = "../data/KITTI/train/images"
 splits_dir = "../data/KITTI/splits"
 names_path = "./names/BEV.names"
-iou_type = "rIoU"
-iou_thres = 0.1
-conf_thres = 0.5
+iou_type = "rgIoU"
+iou_thres = -0.5
+conf_thres = 0.9
 draw_BEV = False
 
 
 if __name__ == "__main__":
     if input_type == "KITTI_basic":
         cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_basic.cfg"
-        weights = "./checkpoints/KITTI_basic/Yolov4_BEV_flat_epoch133.pth"
+        weights = f"./checkpoints/{checkpoint_dir}/Yolov4_BEV_flat_epoch133.pth"
     elif input_type == "KITTI_canvas":
         cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_canvas.cfg"
-        weights = "./checkpoints/KITTI_canvas/Yolov4_BEV_flat_epoch199.pth"
+        weights = f"./checkpoints/{checkpoint_dir}/Yolov4_BEV_flat_epoch79.pth"
 
     # names file
     mapping = {}

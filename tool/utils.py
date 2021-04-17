@@ -77,7 +77,12 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     return carea / uarea
 
 
-def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> torch.Tensor:
+def my_IoU(
+    box1: torch.Tensor,
+    other: torch.Tensor,
+    iou_type: str = "IoU",
+    device: str = "cpu",
+) -> torch.Tensor:
     """Compute IoU between box1 and all the boxes in other.
     Type of IoU to run is specified with the type parameter.
 
@@ -156,9 +161,9 @@ def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> to
         other_ = [rect_polygon(*r) for r in other_]
 
         # compute areas
-        box1_area = torch.Tensor([p.area for p in box1_])
-        other_area = torch.Tensor([p.area for p in other_])
-        inter_area = torch.Tensor([p.intersection(box1_[0]).area for p in other_]) + 1e-16
+        box1_area = torch.Tensor([p.area for p in box1_]).to(device)
+        other_area = torch.Tensor([p.area for p in other_]).to(device)
+        inter_area = torch.Tensor([p.intersection(box1_[0]).area for p in other_]).to(device) + 1e-16
         union_area = box1_area + other_area - inter_area
 
         iou = inter_area / union_area
@@ -168,8 +173,8 @@ def my_IoU(box1: torch.Tensor, other: torch.Tensor, iou_type: str = "IoU") -> to
         elif iou_type == "rgIoU":
 
             # max and min of all xy coords
-            other_coords = torch.Tensor([p.exterior.coords.xy for p in other_])
-            box1_coords = torch.Tensor([p.exterior.coords.xy for p in box1_])
+            other_coords = torch.Tensor([p.exterior.coords.xy for p in other_]).to(device)
+            box1_coords = torch.Tensor([p.exterior.coords.xy for p in box1_]).to(device)
             other_max_xy, _ = other_coords.max(2)
             other_min_xy, _ = other_coords.min(2)
             box1_max_xy, _ = box1_coords.max(2)

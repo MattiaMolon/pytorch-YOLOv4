@@ -107,6 +107,12 @@ class Darknet(nn.Module):
         """
         super(Darknet, self).__init__()
 
+        # check for cuda
+        if torch.cuda.is_available():
+            self.device = "cuda:0"
+        else:
+            self.device = "cpu"
+
         # what are we using the model for
         self.inference = inference
         self.training = not self.inference
@@ -251,7 +257,7 @@ class Darknet(nn.Module):
         """
         # transform anchors dimensions in BEV space
         tmp_anchors = [(self.anchors[i], self.anchors[i + 1]) for i in range(0, len(self.anchors), 2)]
-        tmp_anchors = torch.FloatTensor(tmp_anchors)
+        tmp_anchors = torch.FloatTensor(tmp_anchors).to(self.device)
         tmp_anchors = tmp_anchors.repeat(out_boxes.shape[1] // self.num_anchors, 1).unsqueeze(0)
         out_boxes[..., 2:4] *= tmp_anchors
         del tmp_anchors
@@ -417,7 +423,7 @@ class Darknet(nn.Module):
                     model.append(yolo_layer)
 
                 elif self.model_type == "BEV_flat":  # BEV flat layer
-                    yolo_layer = YoloBEVFlatLayer()
+                    yolo_layer = YoloBEVFlatLayer(device=self.device)
                     yolo_layer.num_classes = int(block["classes"])
                     self.num_classes = yolo_layer.num_classes
                     yolo_layer.num_predictors = self.num_predictors
