@@ -43,7 +43,7 @@ Cfg.num_anchors = 1
 # validation
 Cfg.iou_type = "rIoU"  # ['IoU', 'gIoU', 'rIoU', 'gIoU']
 Cfg.conf_thresh = 0.6
-Cfg.iou_thresh = 0.2
+Cfg.iou_thresh = 0.1
 
 # extra
 Cfg.keep_checkpoint_max = 5

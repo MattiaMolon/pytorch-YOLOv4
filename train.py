@@ -711,6 +711,8 @@ if __name__ == "__main__":
         model = torch.nn.DataParallel(model)
     model.to(device=device)
 
+    model.num_params()
+
     try:
         train(
             model=model,

@@ -204,7 +204,7 @@ def train(
     # define summary writer
     writer = SummaryWriter(
         log_dir=config.TRAIN_TENSORBOARD_DIR,
-        filename_suffix=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}",
+        filename_suffix=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}_{cfg.save_postfix}",
         comment=f"OPT_{config.TRAIN_OPTIMIZER}_LR_{config.learning_rate}_BS_{config.batch}_Sub_{config.subdivisions}_Size_{config.width}",
     )
 
@@ -640,6 +640,9 @@ if __name__ == "__main__":
 
     # freeze backbone
     model.freeze_layers([i for i in range(54)])
+
+    # get num parameters
+    print(f"n_params = {model.num_params()}")
 
     try:
         train(

@@ -126,12 +126,12 @@ class Darknet(nn.Module):
         # get net params
         self.width = int(self.blocks[0]["width"])
         self.height = int(self.blocks[0]["height"])
-        self.cell_depth = float(self.blocks[0]["cell_depth"])
-        self.cell_angle = float(self.blocks[0]["cell_angle"])
-        # anchors are defined [W,H] for Yolov4 and [H,W] for other models
-        self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
-        self.num_anchors = int(self.blocks[0]["num"])
-        if self.model_type == "BEV_flat":
+        if self.model_type != "Yolov4":
+            self.cell_depth = float(self.blocks[0]["cell_depth"])
+            self.cell_angle = float(self.blocks[0]["cell_angle"])
+            # anchors are defined [W,H] for Yolov4 and [H,W] for other models
+            self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
+            self.num_anchors = int(self.blocks[0]["num"])
             self.num_predictors = int(self.blocks[0]["num_predictors"])
 
         # create model from blocks
@@ -284,6 +284,21 @@ class Darknet(nn.Module):
         for id in layer_ids:
             for param in self.model[id].parameters():
                 param.requires_grad = False
+
+    def num_params(self) -> int:
+        """Count number of parameters in network
+
+        Output:
+            number of parameters in network
+        """
+        n = 0
+        for p in self.model[:].parameters():
+            n_layer = 1
+            for dim in p.shape:
+                n_layer *= dim
+            n += n_layer
+
+        return n
 
     def create_network(self, blocks):
         model = nn.ModuleList()

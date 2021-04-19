@@ -2,7 +2,7 @@ import os
 from easydict import EasyDict
 
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_BASE_DIR = os.path.abspath(".")
 
 Cfg = EasyDict()
 
