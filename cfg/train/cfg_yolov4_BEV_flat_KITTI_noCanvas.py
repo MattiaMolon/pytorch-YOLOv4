@@ -8,12 +8,19 @@ Cfg = EasyDict()
 # paths
 Cfg.checkpoints = os.path.join(_BASE_DIR, "checkpoints")
 Cfg.TRAIN_TENSORBOARD_DIR = os.path.join(_BASE_DIR, "log")
-Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat.cfg")
+Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat_KITTI_noCanvas.cfg")
 
-# input_dim
+# KITTI input_dim
 Cfg.width = 312
 Cfg.height = 96
 Cfg.channels = 3
+
+# KITTI BEV params
+Cfg.cell_angle = 2.102
+Cfg.cell_depth = 5.0
+Cfg.anchors = 1.64, 3.93
+Cfg.num_anchors = 1
+Cfg.num_predictors = 10
 
 # training params
 Cfg.epochs = 300
@@ -32,13 +39,6 @@ Cfg.burn_in = 1000
 Cfg.steps = [400000, 450000]
 Cfg.policy = Cfg.steps
 Cfg.scales = 0.1, 0.1
-
-# BEV params
-Cfg.num_predictors = 20
-Cfg.cell_angle = 2.102
-Cfg.cell_depth = 5.0
-Cfg.anchors = 1.64, 3.93
-Cfg.num_anchors = 1
 
 # validation
 Cfg.iou_type = "rIoU"  # ['IoU', 'gIoU', 'rIoU', 'gIoU']

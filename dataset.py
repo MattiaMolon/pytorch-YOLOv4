@@ -484,15 +484,17 @@ class Yolo_dataset(Dataset):
 class Yolo_BEV_dataset(Dataset):
     """BEV pytorch dataset to load KITTI"""
 
-    def __init__(self, config: edict, split: str = "train") -> None:
+    def __init__(self, config: edict, split: str = "train", input_type="nuScenes") -> None:
         """
         Args:
             config (edict): Easy directory configuration file
             split (str): Split to load. Can be ["train", "test", "val"]. Default = train.
+            input_type (str): Dataset used to select FOV and canvas. Can be ["KITTI", "nuScenes"]. Default = nuScenes.
         """
         super(Yolo_BEV_dataset, self).__init__()
         self.cfg = config
         self.split = split
+        self.input_type = input_type
 
         # read images paths
         self.img_paths = []
@@ -516,9 +518,10 @@ class Yolo_BEV_dataset(Dataset):
         )
 
         # extra params
-        self.fov = 82  # KITTI fov [TODO: need to adapt to new datasets]
+        self.kitti_fov = 82
+        self.nuScenes_fov = 70
         self.base_width = 864
-        self.base_height = 135
+        self.base_height = 136
         self.canvas = np.zeros(shape=(self.cfg.height, self.cfg.width, self.cfg.channels), dtype=np.float)
         self.mapping = {}
         with open(self.cfg.names_path, "r") as f:
@@ -548,21 +551,29 @@ class Yolo_BEV_dataset(Dataset):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
         img /= 255.0
 
-        # rescale image to input size and position it to canvas center
-        new_w = int(self.base_width * (self.fov / 360.0))
-        new_w = new_w if new_w % 2 == 0 else new_w - 1
-        new_h = int((img.shape[0] / img.shape[1]) * new_w)
-        new_h = new_h if new_h % 2 == 0 else new_h - 1
-        img = cv2.resize(img, (new_w, new_h))
+        if self.input_type == "KITTI":
+            # rescale image to input size and position it to canvas center
+            new_w = int(self.base_width * (self.kitti_fov / 360.0))
+            new_w = new_w if new_w % 2 == 0 else new_w - 1
+            new_h = int((img.shape[0] / img.shape[1]) * new_w)
+            new_h = new_h if new_h % 2 == 0 else new_h - 1
+            img = cv2.resize(img, (new_w, new_h))
 
-        # define padding borders
-        tb_border = (self.canvas.shape[0] - new_h) // 2  # top/bottom border
-        lr_border = (self.canvas.shape[1] - new_w) // 2  # left/right border
+            # define padding borders
+            tb_border = (self.canvas.shape[0] - new_h) // 2  # top/bottom border
+            lr_border = (self.canvas.shape[1] - new_w) // 2  # left/right border
 
-        # fit image into canvas
-        canvas = self.canvas.copy()
-        canvas[tb_border : canvas.shape[0] - tb_border, lr_border : canvas.shape[1] - lr_border, :] = img
-        img = canvas
+            # fit image into canvas
+            canvas = self.canvas.copy()
+            canvas[tb_border : canvas.shape[0] - tb_border, lr_border : canvas.shape[1] - lr_border, :] = img
+            img = canvas
+
+        elif self.input_type == "nuScenes":
+            img = cv2.resize(img, (self.cfg.width, self.cfg.height))
+
+        else:
+            print("Input type not recognized in dataset.py/Yolo_BEV_dataset")
+            exit(1)
 
         ############## read labels
         label_id = self.img_paths[idx].split("/")[-1].split(".")[0]

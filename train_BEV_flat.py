@@ -57,8 +57,8 @@ class Yolo_loss(nn.Module):
         self.cell_angle = cfg.cell_angle
         self.cell_depth = cfg.cell_depth
         self.bbox_attrib = 7
-        self.num_predictors = 20
-        self.num_anchors = 1
+        self.num_predictors = cfg.num_predictors
+        self.num_anchors = cfg.num_anchors
         self.anchors = [(cfg.anchors[i], cfg.anchors[i + 1]) for i in range(0, len(cfg.anchors), 2)]
 
     def forward(self, preds, labels):
@@ -179,8 +179,8 @@ def train(
     log_step=20,
 ):
     # Get dataloaders
-    train_dataset = Yolo_BEV_dataset(config, split="train")
-    val_dataset = Yolo_BEV_dataset(config, split="val")
+    train_dataset = Yolo_BEV_dataset(config, split="train", input_type="nuScenes")
+    val_dataset = Yolo_BEV_dataset(config, split="val", input_type="nuScenes")
 
     train_loader = DataLoader(
         train_dataset,
@@ -491,7 +491,7 @@ def get_args(**kwargs) -> dict:
         metavar="save_prefix",
         type=str,
         nargs="?",
-        default="Yolo_BEV_flat_canvas",
+        default="Yolo_BEV_flat_nuScenes",
         help="prefix for saved files' names",
         dest="save_prefix",
     )
@@ -518,7 +518,7 @@ def get_args(**kwargs) -> dict:
         "-dir",
         "--data-dir",
         type=str,
-        default=os.path.abspath("..") + "/data/KITTI/splits",
+        default=os.path.abspath("..") + "/data/nuScenes/splits",
         help="dataset dir",
         dest="dataset_dir",
     )
@@ -548,9 +548,16 @@ def get_args(**kwargs) -> dict:
     parser.add_argument(
         "-keep-checkpoint-max",
         type=int,
-        default=10,
+        default=5,
         help="maximum number of checkpoints to keep. If set 0, all checkpoints will be kept",
         dest="keep_checkpoint_max",
+    )
+    parser.add_argument(
+        "-f" "--freeze-backbone",
+        type=int,
+        default=1,
+        help="1 if it is needed to freeze the backbone during training, 0 otherwise",
+        dest="freeze",
     )
     args = vars(parser.parse_args())
 
@@ -639,10 +646,11 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(cfg.load))
 
     # freeze backbone
-    model.freeze_layers([i for i in range(54)])
+    if cfg.freeze:
+        model.freeze_layers([i for i in range(54)])
 
     # get num parameters
-    print(f"n_params = {model.num_params()}")
+    print(f"model_params = {model.num_params()}")
 
     try:
         train(

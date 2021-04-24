@@ -14,7 +14,7 @@ else:
 
 # params
 input_type = "KITTI_canvas"
-checkpoint_dir = "KITTI_canvas_WRONG"
+checkpoint_dir = "KITTI_canvas"
 train_dir = "../data/KITTI/train/images"
 splits_dir = "../data/KITTI/splits"
 names_path = "./names/BEV.names"
@@ -25,8 +25,8 @@ draw_BEV = True
 
 
 if __name__ == "__main__":
-    if input_type == "KITTI_basic":
-        cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_basic.cfg"
+    if input_type == "KITTI_noCanvas":
+        cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_noCanvas.cfg"
         weights = f"./checkpoints/{checkpoint_dir}/Yolov4_BEV_flat_epoch133.pth"
     elif input_type == "KITTI_canvas":
         cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_canvas.cfg"

@@ -37,7 +37,7 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
 
     # read sample image
     img = cv2.imread(imgfile)
-    img = preprocess_KITTI_input(img)
+    img = preprocess_input(img, input_type="nuScenes")
 
     # create batch
     batch = np.expand_dims(img, 0)
@@ -48,8 +48,7 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
     finish = time.time()
     print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
 
-    # TODO: plot boxes in BEV
-    draw_bboxes_BEV(batch.shape[0], boxes)
+    draw_bboxes_BEV(batch.shape[0], boxes, fovx=22 * 3.33)
 
 
 def get_args():
@@ -58,7 +57,7 @@ def get_args():
         "-cfg",
         "--cfgfile",
         type=str,
-        default="./cfg/model/yolov4_BEV_flat.cfg",
+        default="./cfg/model/yolov4_BEV_flat_nuScenes.cfg",
         help="path of cfg file",
         dest="cfgfile",
     )
@@ -73,7 +72,7 @@ def get_args():
     parser.add_argument(
         "-imgfile",
         type=str,
-        default="../data/KITTI/train/images/001167.png",
+        default="/home/mattia/university/Master_thesis/data/nuScenes/samples/CAM_FRONT/n008-2018-08-01-15-16-36-0400__CAM_FRONT__1533151604012404.jpg",
         help="path of your image file.",
         dest="imgfile",
     )

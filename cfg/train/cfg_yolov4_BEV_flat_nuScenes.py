@@ -8,17 +8,17 @@ Cfg = EasyDict()
 # paths
 Cfg.checkpoints = os.path.join(_BASE_DIR, "checkpoints")
 Cfg.TRAIN_TENSORBOARD_DIR = os.path.join(_BASE_DIR, "log")
-Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat_KITTI_canvas.cfg")
+Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_flat_nuScenes.cfg")
 
-# KITTI input dim
-Cfg.width = 200
+# nuScenes input dim
+Cfg.width = 168
 Cfg.height = 136
 Cfg.channels = 3
 
-# KITTI BEV params
-Cfg.cell_angle = 3.33
+# nuScenes BEV params
+Cfg.cell_angle = 3.333333334
 Cfg.cell_depth = 5.0
-Cfg.anchors = 1.64, 3.93
+Cfg.anchors = 1.87, 4.59
 Cfg.num_anchors = 1
 Cfg.num_predictors = 10
 

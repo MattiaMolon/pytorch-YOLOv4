@@ -4,6 +4,9 @@
 - [x] rIoU and rgIoU implementation
 - [x] NMS implementation
 - [x] Understand structure
+- [x] Adapt to KITTI dataset
+- [x] Adapt to nuScenes dataset
+- [x] Validation AP
 
 ## Yolov4_BEV_grid
 - [x] Build structure
@@ -18,3 +21,4 @@
 - [x] Training loop
 - [x] Loss implementation
 - [x] BEV visualization integration
+- [ ] Loss iou test  

@@ -417,13 +417,13 @@ class RotatingRectangle(Rectangle):
         self._apply_rotation()
 
 
-def preprocess_KITTI_input(img, input_type="KITTI_basic"):
-    # Kitti params
-    fov = 82
-    base_width = 864
-    base_height = 135
+def preprocess_input(img, input_type="nuScenes"):
 
     if input_type == "KITTI_canvas":
+        # Kitti params
+        fov = 82
+        base_width = 864
+        base_height = 136
         height = 136
         width = 200
         channels = 3
@@ -449,8 +449,27 @@ def preprocess_KITTI_input(img, input_type="KITTI_basic"):
         return canvas
 
     elif input_type == "KITTI_basic":
+        # Kitti params
+        fov = 82
+        base_width = 864
+        base_height = 136
         height = 96
         width = 312
+        channels = 3
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
+        img = cv2.resize(img, (width, height))
+        img /= 255.0
+
+        return img
+
+    elif input_type == "nuScenes":
+        # nuScenes params
+        fov = 70
+        base_width = 864
+        base_height = 136
+        height = 136
+        width = 176
         channels = 3
 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
@@ -471,65 +490,67 @@ def draw_bboxes_BEV(
         fovx (float, optional): number of cells on x axis * degree per cell. Defaults to 25.0*3.33.
         names (List[str], optional): names of images
     """
-    save_dir = os.path.join(os.path.abspath("."), "predictions")
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
+    with torch.no_grad():
 
-    plane_BEV = plt.imread("./tool_extra/BEV_plane.png")
-    origin = (plane_BEV.shape[0] // 2, plane_BEV.shape[1] // 2)
+        save_dir = os.path.join(os.path.abspath("."), "predictions")
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
 
-    # exit if preds are None
-    if preds is None:
+        plane_BEV = plt.imread("./tool/BEV_plane.png")
+        origin = (plane_BEV.shape[0] // 2, plane_BEV.shape[1] // 2)
+
+        # exit if preds are None
+        if preds is None:
+            for i in range(batch_size):
+                plt.imsave(os.path.join(save_dir, names[i] + ".png"), plane_BEV)
+            return
+
         for i in range(batch_size):
-            plt.imsave(os.path.join(save_dir, names[i] + ".png"), plane_BEV)
-        return
 
-    for i in range(batch_size):
+            fig, ax = plt.subplots(1)
+            ax.set_aspect("equal")
+            ax.imshow(plane_BEV, origin="lower")
+            name = str(i) if names is None else names[i]
 
-        fig, ax = plt.subplots(1)
-        ax.set_aspect("equal")
-        ax.imshow(plane_BEV, origin="lower")
-        name = str(i) if names is None else names[i]
+            if np.isin(preds[:, 0], float(i)).any():
+                mask = preds[:, 0] == float(i)
+                pred = preds[mask][:, 1:]
+                patches = []
+                points = []
 
-        if np.isin(preds[:, 0], float(i)).any():
-            mask = preds[:, 0] == float(i)
-            pred = preds[mask][:, 1:]
-            patches = []
-            points = []
+                for j, box in enumerate(pred):
+                    if abs(box[3]) >= 20.0 or abs(box[2]) >= 20.0:
+                        continue
+                    x = (box[1] * math.sin(math.radians(box[0]))) + origin[0]
+                    z = (box[1] * math.cos(math.radians(box[0]))) + origin[1]
+                    patches.append(
+                        RotatingRectangle(
+                            (x, z),
+                            width=box[3],
+                            height=box[2],
+                            rel_point_of_rot=(box[3] / 2, box[2] / 2),
+                            angle=-math.degrees(math.atan2(box[4], box[5])),
+                            color="red",
+                            fill=False,
+                        )
+                    )  # minus degree because of right hand rule
 
-            for j, box in enumerate(pred):
-                if abs(box[3]) >= 20.0 or abs(box[2]) >= 20.0:
-                    continue
-                x = (box[1] * math.sin(math.radians(box[0]))) + origin[0]
-                z = (box[1] * math.cos(math.radians(box[0]))) + origin[1]
-                patches.append(
-                    RotatingRectangle(
-                        (x, z),
-                        width=box[3],
-                        height=box[2],
-                        rel_point_of_rot=(box[3] / 2, box[2] / 2),
-                        angle=-math.degrees(math.atan2(box[4], box[5])),
-                        color="red",
-                        fill=False,
+                    verts = patches[-1].get_verts()
+                    points.append(
+                        [
+                            ((verts[2][0] - verts[1][0]) / 2) + verts[1][0],
+                            ((verts[2][1] - verts[1][1]) / 2) + verts[1][1],
+                        ]
                     )
-                )  # minus degree because of right hand rule
 
-                verts = patches[-1].get_verts()
-                points.append(
-                    [
-                        ((verts[2][0] - verts[1][0]) / 2) + verts[1][0],
-                        ((verts[2][1] - verts[1][1]) / 2) + verts[1][1],
-                    ]
-                )
+                # draw on BEV map
+                if len(points) > 0:
+                    ax.scatter(np.array(points)[:, 0], np.array(points)[:, 1], color="blue", s=2)
+                for rect in patches:
+                    ax.add_patch(rect)
 
-            # draw on BEV map
-            if len(points) > 0:
-                ax.scatter(np.array(points)[:, 0], np.array(points)[:, 1], color="blue", s=2)
-            for rect in patches:
-                ax.add_patch(rect)
-
-        plt.savefig(os.path.join(save_dir, name + ".png"))
-        plt.close(fig)
+            plt.savefig(os.path.join(save_dir, name + ".png"))
+            plt.close(fig)
 
 
 def nms_BEV(
