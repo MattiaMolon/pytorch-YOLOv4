@@ -576,7 +576,11 @@ class Yolo_BEV_dataset(Dataset):
             exit(1)
 
         ############## read labels
-        label_id = self.img_paths[idx].split("/")[-1].split(".")[0]
+        if self.input_type == "KITTI":
+            label_id = self.img_paths[idx].split("/")[-1].split(".")[0]
+        elif self.input_type == "nuScenes":
+            splits = self.img_paths[idx].split("/")
+            label_id = splits[-2] + "/" + splits[-1]
         matches = self.labels[self.labels["ID"] == label_id]
 
         # check if img has labels
