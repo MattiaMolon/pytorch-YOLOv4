@@ -23,10 +23,10 @@ Cfg.num_anchors = 1
 Cfg.num_predictors = 10
 
 # training params
-Cfg.epochs = 300
+Cfg.epochs = 100
 Cfg.batch = 64
-Cfg.subdivisions = 16
-Cfg.max_batches = 600000
+Cfg.subdivisions = 4
+Cfg.max_batches = 6000000
 
 # optimizer
 Cfg.TRAIN_OPTIMIZER = "adam"
@@ -46,4 +46,4 @@ Cfg.conf_thresh = 0.6
 Cfg.iou_thresh = 0.1
 
 # extra
-Cfg.keep_checkpoint_max = 5
+Cfg.keep_checkpoint_max = 10

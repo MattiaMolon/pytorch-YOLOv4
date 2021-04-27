@@ -532,32 +532,11 @@ def get_args(**kwargs) -> dict:
     )
     parser.add_argument("-classes", type=int, default=1, help="dataset classes")
     parser.add_argument(
-        "-optimizer",
-        type=str,
-        default="adam",
-        help="training optimizer",
-        dest="TRAIN_OPTIMIZER",
-    )
-    parser.add_argument(
-        "-iou-type",
-        type=str,
-        default="IoU",
-        help="iou type (IoU, gIoU, rIoU, rgIoU)",
-        dest="iou_type",
-    )
-    parser.add_argument(
-        "-keep-checkpoint-max",
-        type=int,
-        default=5,
-        help="maximum number of checkpoints to keep. If set 0, all checkpoints will be kept",
-        dest="keep_checkpoint_max",
-    )
-    parser.add_argument(
         "-f",
         "--freeze-backbone",
         type=int,
-        default=1,
-        help="1 if it is needed to freeze the backbone during training, 0 otherwise",
+        default=54,
+        help="number of layers to freeze",
         dest="freeze",
     )
     args = vars(parser.parse_args())
@@ -648,7 +627,9 @@ if __name__ == "__main__":
 
     # freeze backbone
     if cfg.freeze:
-        model.freeze_layers([i for i in range(54)])
+        model.freeze_layers([i for i in range(cfg.freeze)])
+    else:
+        print("!! Training Backbone !!")
 
     # get num parameters
     print(f"model_params = {model.num_params()}")
