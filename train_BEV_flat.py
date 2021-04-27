@@ -16,7 +16,7 @@ from easydict import EasyDict as edict
 from tool.utils import my_IoU
 
 from dataset import Yolo_BEV_dataset
-from cfg.train.cfg_yolov4_BEV_flat_KITTI_canvas import Cfg
+from cfg.train.cfg_yolov4_BEV_flat_nuScenes import Cfg
 import pandas as pd
 
 from tool.darknet2pytorch import Darknet
@@ -553,7 +553,8 @@ def get_args(**kwargs) -> dict:
         dest="keep_checkpoint_max",
     )
     parser.add_argument(
-        "-f" "--freeze-backbone",
+        "-f",
+        "--freeze-backbone",
         type=int,
         default=1,
         help="1 if it is needed to freeze the backbone during training, 0 otherwise",
