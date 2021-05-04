@@ -110,7 +110,7 @@ class Darknet(nn.Module):
 
         # check for cuda
         if torch.cuda.is_available():
-            self.device = "cuda:0"
+            self.device = "cuda"
         else:
             self.device = "cpu"
 

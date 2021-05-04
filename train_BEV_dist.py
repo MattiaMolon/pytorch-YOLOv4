@@ -350,7 +350,6 @@ def get_args(**kwargs) -> dict:
         default=os.path.abspath(".") + "/checkpoints/yolov4.weights",
         help="Path to a .pth file to load",
     )
-    parser.add_argument("-g", "--gpu", metavar="G", type=str, default="-1", help="GPU id", dest="gpu")
     parser.add_argument(
         "-dir",
         "--data-dir",

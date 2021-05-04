@@ -8,7 +8,7 @@ import argparse
 """hyper parameters"""
 # check for cuda
 if torch.cuda.is_available():
-    device = "cuda:0"
+    device = "cuda"
 else:
     device = "cpu"
 
