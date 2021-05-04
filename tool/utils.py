@@ -469,7 +469,7 @@ def preprocess_input(img, input_type="nuScenes"):
         base_width = 864
         base_height = 136
         height = 136
-        width = 176
+        width = 168
         channels = 3
 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
@@ -502,7 +502,8 @@ def draw_bboxes_BEV(
         # exit if preds are None
         if preds is None:
             for i in range(batch_size):
-                plt.imsave(os.path.join(save_dir, names[i] + ".png"), plane_BEV)
+                name = names[i] if not names[i].contains("/") else names[i].split(".")[0]
+                plt.imsave(os.path.join(save_dir, name + ".png"), plane_BEV)
             return
 
         for i in range(batch_size):
@@ -564,8 +565,8 @@ def nms_BEV(
 
     Args:
         prediction (torch.Tensor): output of yolov4_BEV
-        obj_thresh (float): confidence trashold for detection. Default = 0.3
-        nms_thresh (float): nms treshold for rgIoU. Default = 0.7
+        obj_thresh (float): confidence trashold for detection. Default = 0.5
+        nms_thresh (float): nms treshold for rgIoU. Default = 0.5
         verbose (bool): verbose if True. Default = False
         iou_type (str): type of iou to use during NMS. Default = 'IoU'
 

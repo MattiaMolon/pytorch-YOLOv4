@@ -8,29 +8,25 @@ from tqdm import tqdm
 
 # check for cuda
 if torch.cuda.is_available():
-    device = "cuda:0"
+    device = "cuda"
 else:
     device = "cpu"
 
 # params
-input_type = "KITTI_canvas"
-checkpoint_dir = "KITTI_canvas"
-train_dir = "../data/KITTI/train/images"
-splits_dir = "../data/KITTI/splits"
+cfg_model_file = "./cfg/model/yolov4_BEV_flat_nuScenes.cfg"
+weights = "./checkpoints/nuScenes_e50_lr0.001_noF/Yolo_BEV_flat_nuScenes_epoch45_.pth"
+train_dir = "../data/nuScenes/train/samples"
+splits_dir = "../data/nuScenes/splits"
 names_path = "./names/BEV.names"
 iou_type = "rIoU"
 iou_thres = 0.1
 conf_thres = 0.8
 draw_BEV = True
-
+show_plot = False
 
 if __name__ == "__main__":
-    if input_type == "KITTI_noCanvas":
-        cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_noCanvas.cfg"
-        weights = f"./checkpoints/{checkpoint_dir}/Yolov4_BEV_flat_epoch133.pth"
-    elif input_type == "KITTI_canvas":
-        cfg_model_file = "./cfg/model/yolov4_BEV_flat_KITTI_canvas.cfg"
-        weights = f"./checkpoints/{checkpoint_dir}/Yolov4_BEV_flat_epoch199.pth"
+
+    input_type = splits_dir.split("/")[2]
 
     # names file
     mapping = {}
@@ -39,7 +35,7 @@ if __name__ == "__main__":
             mapping[line] = float(i)
 
     # model
-    m = Darknet(cfg_model_file, model_type="BEV_flat", inference=True)
+    m = Darknet(cfg_model_file, model_type="BEV_flat", inference=True).to(device)
     m.load_state_dict(torch.load(weights, map_location=torch.device(device)))
     m.eval()
 
@@ -55,28 +51,32 @@ if __name__ == "__main__":
         "cos": float,
         "cls": str,
     }
-    df_gt = pd.read_csv(os.path.join(splits_dir, "val_split.csv"), dtype=types)
+    df_gt = pd.read_csv(os.path.join(splits_dir, "test_split.csv"), dtype=types)
     df_gt = df_gt.replace({"cls": mapping})
     df_gt.astype({"cls": float})
     df_preds = pd.DataFrame(columns=["ID", "conf", "correct"])
 
     # generate preds
-    with open(os.path.join(splits_dir, "val_split.txt"), "r") as paths:
+    n_lines = sum(1 for line in open(os.path.join(splits_dir, "test_split.txt"), "r"))
+    with open(os.path.join(splits_dir, "test_split.txt"), "r") as paths:
         print("Generating predictions...")
-        for i, path in tqdm(enumerate(paths), ncols=100, leave=False):
+        for i, path in tqdm(enumerate(paths), ncols=100, total=n_lines, leave=False):
 
-            # preprocess input
-            id_img = path.strip().split("/")[-1].split(".")[0]
-            input = cv2.imread(os.path.join(train_dir, id_img + ".png"))
-            input = preprocess_KITTI_input(input, input_type=input_type)
+            if input_type == "KITTI":
+                id_img = path.strip().split("/")[-1].split(".")[0]
+            elif input_type == "nuScenes":
+                id_img = path.strip().split("/")[-2] + "/" + path.strip().split("/")[-1]
+
+            input = cv2.imread(path.strip())
+            input = preprocess_input(input, input_type=input_type)
             input = torch.from_numpy(input).unsqueeze(0)
             input = input.permute(0, 3, 1, 2).float().to(device)
 
-            preds = m(input).detach()
+            preds = m(input).detach().cpu()
 
             # draw BEV
             if draw_BEV:
-                nms_preds = nms_BEV(preds, iou_type=iou_type, obj_thresh=0.8, verbose=False)
+                nms_preds = nms_BEV(preds, iou_type=iou_type, obj_thresh=conf_thres, verbose=False)
                 draw_bboxes_BEV(input.shape[0], nms_preds, names=[id_img])
 
             # save predictions to pandas dataframe
@@ -133,8 +133,9 @@ if __name__ == "__main__":
     precision = [1.0] + precision + [0.0, 0.0]
     recall = [0.0] + recall + [recall[-1] + 1e-16, 1.0]
 
-    plt.plot(recall, precision)
-    plt.show()
+    if show_plot:
+        plt.plot(recall, precision)
+        plt.show()
 
     # computing interpolated AP (VOC format)
     ap_voc = 0

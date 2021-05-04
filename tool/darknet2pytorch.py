@@ -6,6 +6,7 @@ from tool.region_loss import RegionLoss
 from tool.yolo_layer import YoloLayer
 from tool.yolo_BEV_grid_layer import YoloBEVGridLayer
 from tool.yolo_BEV_flat_layer import YoloBEVFlatLayer
+from tool.yolo_BEV_dist_layer import YoloBEVDistLayer
 from tool.config import *
 from tool.torch_utils import *
 from typing import List
@@ -102,7 +103,7 @@ class Darknet(nn.Module):
 
         Args:
             cfgfile (str): path to cfg file
-            model_type (str, optional): Type of network used. Can be ["Yolov4", "BEV_grid", "BEV_flat"]. Defaults to "Yolov4".
+            model_type (str, optional): Type of network used. Can be ["Yolov4", "BEV_grid", "BEV_flat", "BEV_dist"]. Defaults to "Yolov4".
             inference (bool, optional): Define how the network will be used. Defaults to False.
         """
         super(Darknet, self).__init__()
@@ -129,10 +130,11 @@ class Darknet(nn.Module):
         if self.model_type != "Yolov4":
             self.cell_depth = float(self.blocks[0]["cell_depth"])
             self.cell_angle = float(self.blocks[0]["cell_angle"])
-            # anchors are defined [W,H] for Yolov4 and [H,W] for other models
-            self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
-            self.num_anchors = int(self.blocks[0]["num"])
             self.num_predictors = int(self.blocks[0]["num_predictors"])
+            if self.model_type in ["BEV_flat", "BEV_grid"]:
+                # anchors are defined [W,H] for Yolov4 and [H,W] for other models
+                self.anchors = [float(i) for i in self.blocks[0]["anchors"].split(",")]
+                self.num_anchors = int(self.blocks[0]["num"])
 
         # create model from blocks
         self.model = self.create_network(self.blocks)
@@ -225,6 +227,7 @@ class Darknet(nn.Module):
             # if BEV_flat
             # out_boxes = [predictions last layer]
             return out_boxes
+
         else:
             if self.model_type == "Yolov4":
                 return get_region_boxes(out_boxes)
@@ -241,6 +244,9 @@ class Darknet(nn.Module):
                 #             ]
                 # transform out_boxes to BEV dimensions such that we can compare them with gt
                 return self.transform_pred_to_BEV(out_boxes)
+
+            elif self.model_type == "BEV_dist":
+                return out_boxes
 
             else:
                 print("model type not recognized")
@@ -443,6 +449,13 @@ class Darknet(nn.Module):
                     self.num_classes = yolo_layer.num_classes
                     yolo_layer.num_predictors = self.num_predictors
                     yolo_layer.num_anchors = self.num_anchors
+                    model.append(yolo_layer)
+
+                elif self.model_type == "BEV_dist":  # BEV dist layer
+                    yolo_layer = YoloBEVDistLayer(device=self.device)
+                    yolo_layer.num_classes = int(block["classes"])
+                    self.num_classes = yolo_layer.num_classes
+                    yolo_layer.num_predictors = self.num_predictors
                     model.append(yolo_layer)
 
                 elif self.model_type == "Yolov4":  # Classic Yolo layer

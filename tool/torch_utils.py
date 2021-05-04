@@ -72,7 +72,7 @@ def convert2cpu_long(gpu_matrix):
     return torch.LongTensor(gpu_matrix.size()).copy_(gpu_matrix)
 
 
-def do_detect(model, img, obj_thresh, nms_thresh, device, nms_iou="rgIoU"):
+def do_detect(model, img, device="cpu", obj_thresh=0.5, nms_thresh=0.5, nms_iou="rgIoU"):
     model.eval()
     t0 = time.time()
 
@@ -82,7 +82,7 @@ def do_detect(model, img, obj_thresh, nms_thresh, device, nms_iou="rgIoU"):
     elif type(img) == np.ndarray and len(img.shape) == 4:
         img = torch.from_numpy(img.transpose(0, 3, 1, 2)).float().div(255.0)
     else:
-        print("unknow image type or dims")
+        print("unknown image type or dims")
         exit(-1)
 
     # push to GPU
@@ -104,6 +104,8 @@ def do_detect(model, img, obj_thresh, nms_thresh, device, nms_iou="rgIoU"):
         return utils.post_processing(img, obj_thresh, nms_thresh, output)
     elif model.model_type in ["BEV_grid", "BEV_flat"]:
         return utils.nms_BEV(output, obj_thresh, nms_thresh, iou_type=nms_iou)
+    elif model.model_type == "BEV_dist":
+        return output
     else:
         print("model type not recognized in do_detect()")
         quit(1)

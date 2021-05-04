@@ -42,15 +42,11 @@ class Yolo_loss(nn.Module):
     def __init__(self, cfg, device):
         super().__init__()
         # losses
-        self.mse = nn.MSELoss(reduction="sum")
         self.bce = nn.BCELoss(reduction="sum")
+        self.sl1 = nn.SmoothL1Loss(reduction="sum")
 
-        # constants
-        self.lambda_xy = 10
-        self.lambda_wl = 10
-        self.lambda_rot = 20
-        self.lambda_obj = 20
-        self.lambda_noobj = 1
+        self.alpha = 0.25
+        self.gamma = 2
 
         # params
         self.device = device
@@ -64,7 +60,7 @@ class Yolo_loss(nn.Module):
     def forward(self, preds, labels):
         # TODO: need to adapt in case of multiple anchors or multiple classes
         # params
-        loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        loss, loss_box, loss_focal = 0.0, 0.0, 0.0
         row_size = preds.shape[-1]
 
         for pred_id, pred in enumerate(preds):
@@ -113,31 +109,20 @@ class Yolo_loss(nn.Module):
                     target[i, j] = label
 
             ################### compute losses
-            ####### box coordinates loss
-            loss_xy += self.mse(pred[obj_mask][..., :2], target[obj_mask][..., :2])
+            ###### box loss (Smoothed L1 loss)
             target[..., 2:3] = torch.log(target[..., 2:3] / self.anchors[0][0] + 1e-16)  # w
             target[..., 3:4] = torch.log(target[..., 3:4] / self.anchors[0][1] + 1e-16)  # l
-            loss_wl += self.mse(pred[obj_mask][..., 2:4], target[obj_mask][..., 2:4])
-            # loss_wl += self.mse(torch.sqrt(pred[obj_mask][..., 2:4]), torch.sqrt(target[obj_mask][..., 2:4]))
+            loss_box += self.sl1(pred[..., :6], target[..., :6])
 
-            ####### rotation loss
-            loss_rot += self.mse(pred[obj_mask][..., 4:6], target[obj_mask][..., 4:6])
+            # ####### focal loss (obj and noobj)
+            ce = self.bce(pred[..., 6:], target[..., 6:])
+            alpha = target[..., 6:] * self.alpha + (1.0 - target[..., 6:]) * (1.0 - self.alpha)
+            pt = torch.where(target[..., 6:] == 1, pred[..., 6:], 1 - pred[..., 6:])
+            loss_focal += (alpha * (1.0 - pt) ** self.gamma * ce).sum()
 
-            ####### obj loss (same as class loss)
-            loss_obj += self.bce(pred[obj_mask][..., 6:], target[obj_mask][..., 6:])
+        loss = loss_box + loss_focal
 
-            ####### noobj loss
-            loss_noobj += self.bce(pred[noobj_mask][..., 6:], target[noobj_mask][..., 6:])
-
-        loss = (
-            self.lambda_xy * loss_xy
-            + self.lambda_wl * loss_wl
-            + self.lambda_rot * loss_rot
-            + self.lambda_obj * loss_obj
-            + self.lambda_noobj * loss_noobj
-        )
-
-        return loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj
+        return loss, loss_box, loss_focal
 
 
 def compute_AP(df_preds, n_gt):
@@ -285,7 +270,7 @@ def train(
 
                 # compute loss
                 preds = model(images)[0]
-                loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(preds, labels)
+                loss, loss_box, loss_focal = criterion(preds, labels)
                 loss.backward()
 
                 epoch_loss += loss.item()
@@ -299,22 +284,15 @@ def train(
                 # log
                 if global_step % (log_step * config.subdivisions) == 0:
                     writer.add_scalar("train/Loss", loss.item(), global_step)
-                    writer.add_scalar("train/loss_xy", loss_xy.item(), global_step)
-                    writer.add_scalar("train/loss_wl", loss_wl.item(), global_step)
-                    writer.add_scalar("train/loss_rot", loss_rot.item(), global_step)
-                    writer.add_scalar("train/loss_obj", loss_obj.item(), global_step)
-                    writer.add_scalar("train/loss_noobj", loss_noobj.item(), global_step)
+                    writer.add_scalar("train/loss_box", loss_box.item(), global_step)
+                    writer.add_scalar("train/loss_focal", loss_focal.item(), global_step)
                     writer.add_scalar("lr", scheduler.get_lr()[0] * config.batch, global_step)
                     logging.debug(
-                        "Train step_{} -> loss : {}, loss xy : {}, loss wl : {}, "
-                        "loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(
+                        "Train step_{} -> loss : {}, loss box : {}, loss focal : {}".format(
                             global_step,
                             loss.item(),
-                            loss_xy.item(),
-                            loss_wl.item(),
-                            loss_rot.item(),
-                            loss_obj.item(),
-                            loss_noobj.item(),
+                            loss_box.item(),
+                            loss_focal.item(),
                             scheduler.get_lr()[0] * config.batch,
                         )
                     )
@@ -341,16 +319,13 @@ def train(
                     eval_model_AP.eval()
 
                     eval_loss = 0.0
-                    eval_loss_xy = 0.0
-                    eval_loss_wl = 0.0
-                    eval_loss_rot = 0.0
-                    eval_loss_obj = 0.0
-                    eval_loss_noobj = 0.0
+                    eval_loss_box = 0.0
+                    eval_loss_focal = 0.0
 
                     print("\nEvaluating...")
                     n_gt = 0
                     df_preds = pd.DataFrame(columns=["conf", "correct"])
-                    for i, batch in enumerate(val_loader):
+                    for batch in tqdm(val_loader, desc="Batch", leave=False):
 
                         # get batch
                         global_step += 1
@@ -360,15 +335,10 @@ def train(
 
                         # compute loss
                         labels_pred = eval_model_loss(images)[0].detach()
-                        loss, loss_xy, loss_wl, loss_rot, loss_obj, loss_noobj = criterion(
-                            labels_pred, labels
-                        )
+                        loss, loss_box, loss_focal = criterion(labels_pred, labels)
                         eval_loss += loss.item()
-                        eval_loss_xy += loss_xy.item()
-                        eval_loss_wl += loss_wl.item()
-                        eval_loss_rot += loss_rot.item()
-                        eval_loss_obj += loss_obj.item()
-                        eval_loss_noobj += loss_noobj.item()
+                        eval_loss_box += loss_box.item()
+                        eval_loss_focal += loss_focal.item()
 
                         # TODO: fix this double inference
                         # save tuple to compute AP
@@ -417,24 +387,17 @@ def train(
 
                     # log
                     logging.debug(
-                        "Val step_{} -> loss : {}, loss xy : {}, loss wl : {},"
-                        " loss rot : {}，loss obj : {}, loss noobj : {}, lr : {}".format(
+                        "Val step_{} -> loss : {}, loss box : {}, loss focal : {}".format(
                             global_step,
                             eval_loss,
-                            eval_loss_xy,
-                            eval_loss_wl,
-                            eval_loss_rot,
-                            eval_loss_obj,
-                            eval_loss_noobj,
+                            eval_loss_box,
+                            eval_loss_focal,
                             scheduler.get_lr()[0] * config.batch,
                         )
                     )
                     writer.add_scalar("val/Loss", eval_loss, epoch)
-                    writer.add_scalar("val/loss_xy", eval_loss_xy, epoch)
-                    writer.add_scalar("val/loss_wl", eval_loss_wl, epoch)
-                    writer.add_scalar("val/loss_rot", eval_loss_rot, epoch)
-                    writer.add_scalar("val/loss_obj", eval_loss_obj, epoch)
-                    writer.add_scalar("val/loss_noobj", eval_loss_noobj, epoch)
+                    writer.add_scalar("val/loss_box", eval_loss_box, epoch)
+                    writer.add_scalar("val/loss_focal", eval_loss_focal, epoch)
                     writer.add_scalar("val/AP", val_AP, epoch)
 
                     del eval_model_loss, eval_model_AP, df_preds
