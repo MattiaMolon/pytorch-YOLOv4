@@ -44,6 +44,7 @@ class Yolo_loss(nn.Module):
         # loss
         self.bce = nn.BCELoss(reduction="none")
         self.gamma = 6
+        self.alpha = 20
 
         # params
         self.device = device
@@ -87,7 +88,8 @@ class Yolo_loss(nn.Module):
             # ####### focal loss (obj and noobj)
             pt = torch.where(target == 1, pred, 1 - pred)
             ce = -torch.log(pt)
-            focal_sample = ((1 - pt) ** self.gamma) * ce
+            alpha_ = torch.where(target == 1, self.alpha, 1)
+            focal_sample = alpha_ * ((1 - pt) ** self.gamma) * ce
             focal_loss += focal_sample.sum()
 
         return focal_loss
@@ -241,9 +243,8 @@ def train(
                 # get evaluation model
                 eval_model = Darknet(cfg.cfgfile, model_type="BEV_dist")
                 if torch.cuda.device_count() > 1:
-                    eval_model.load_state_dict(model.module.state_dict())
-                else:
-                    eval_model.load_state_dict(model.state_dict())
+                    eval_model = torch.nn.DataParallel(eval_model)
+                eval_model.load_state_dict(model.state_dict())
                 eval_model.to(device)
                 eval_model.eval()
 
@@ -448,11 +449,7 @@ if __name__ == "__main__":
     logging.info(f"Using device {device}")
     cfg.device = device
 
-    # load model and push to device
     model = Darknet(cfg.cfgfile, model_type="BEV_dist")
-    if torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
-    model.to(device)
 
     # load weights
     if cfg.load.endswith(".weights"):
@@ -468,6 +465,11 @@ if __name__ == "__main__":
 
     # get num parameters
     print(f"model_params = {model.num_params()}")
+
+    # load model and push to device
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+    model.to(device)
 
     try:
         train(

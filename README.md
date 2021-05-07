@@ -21,4 +21,14 @@
 - [x] Training loop
 - [x] Loss implementation
 - [x] BEV visualization integration
-- [ ] Loss iou test  
+- [x] Loss iou test  
+
+## Yolov4_BEV_dist
+- [x] Build structure
+- [x] Implement forward pass
+- [x] Training loop
+- [x] Loss implementation
+- [x] visualization integration
+
+## How to use demos and post_training scripts
+run demos on the main directory by running "python demos/<demo name>" or "python post_training/<script name>

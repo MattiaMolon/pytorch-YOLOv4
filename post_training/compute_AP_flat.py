@@ -1,8 +1,12 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath("."))
+
 from tool.utils import *
 import torch
 import pandas as pd
 from tool.darknet2pytorch import Darknet
-import os
 import cv2
 from tqdm import tqdm
 

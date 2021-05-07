@@ -1,7 +1,11 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath("."))
+
 from tool.utils import *
 from tool.torch_utils import *
 from tool.darknet2pytorch import Darknet
-from dataset import Yolo_BEV_dataset, Yolo_dataset
 import cv2
 import argparse
 
@@ -13,7 +17,7 @@ else:
     device = "cpu"
 
 
-def detect_BEV_flat(cfgfile, weightfile, imgfile):
+def detect_BEV_dist(cfgfile, weightfile, imgfile):
     """Detect elements in BEV map with yolov4_BEV_flat
 
     Args:
@@ -23,11 +27,11 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
     """
 
     # load model
-    m = Darknet(cfgfile, model_type="BEV_flat")
+    m = Darknet(cfgfile, model_type="BEV_dist")
     m.print_network()
 
     if weightfile.endswith(".weights"):
-        m.load_weights(weightfile, cut_off=54)
+        m.load_weights(weightfile, cut_off=85)
     else:
         m.load_state_dict(torch.load(weightfile, map_location=torch.device(device)))
     print("Loading backbone from %s... Done!" % (weightfile))
@@ -37,18 +41,18 @@ def detect_BEV_flat(cfgfile, weightfile, imgfile):
 
     # read sample image
     img = cv2.imread(imgfile)
-    img = preprocess_input(img, input_type="nuScenes")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float)
+    img = cv2.resize(img, (int(m.blocks[0]["width"]), int(m.blocks[0]["height"])))
+    img /= 255.0
 
     # create batch
     batch = np.expand_dims(img, 0)
 
     # run inference
     start = time.time()
-    boxes = do_detect(m, batch, device, 0.5, 0.6, nms_iou="rgIoU")
+    boxes = do_detect(m, batch, device)
     finish = time.time()
     print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
-
-    draw_bboxes_BEV(batch.shape[0], boxes, fovx=22 * 3.33)
 
 
 def get_args():
@@ -57,7 +61,7 @@ def get_args():
         "-cfg",
         "--cfgfile",
         type=str,
-        default="./cfg/model/yolov4_BEV_flat_nuScenes.cfg",
+        default="./cfg/model/yolov4_BEV_dist_nuScenes.cfg",
         help="path of cfg file",
         dest="cfgfile",
     )
@@ -83,4 +87,4 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    detect_BEV_flat(args.cfgfile, args.weightfile, args.imgfile)
+    detect_BEV_dist(args.cfgfile, args.weightfile, args.imgfile)
