@@ -38,11 +38,11 @@ def collate(batch):
 
 
 # params
-cfg.weights = "checkpoints/Yolo_BEV_dist_nuScenes_epoch43__BESTSOFAR.pth"
-cfg.dataset_dir = "../data/nuScenes/splits"
-cfg.model_file = "./cfg/model/yolov4_BEV_dist_nuScenes.cfg"
-cfg.names_path = "./names/BEV.names"
-cfg.save_predictions = True
+cfg.weights = "../checkpoints/Yolo_BEV_dist_nuScenes_epoch43__BESTSOFAR.pth"
+cfg.dataset_dir = "../../data/nuScenes/splits"
+cfg.cfgfile = "../cfg/model/yolov4_BEV_dist_nuScenes.cfg"
+cfg.names_path = "../names/BEV.names"
+cfg.save_predictions = False
 
 if __name__ == "__main__":
 

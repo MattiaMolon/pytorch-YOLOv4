@@ -17,11 +17,11 @@ else:
     device = "cpu"
 
 # params
-cfg_model_file = "./cfg/model/yolov4_BEV_flat_nuScenes.cfg"
-weights = "./checkpoints/nuScenes_e50_lr0.001_noF/Yolo_BEV_flat_nuScenes_epoch45_.pth"
-train_dir = "../data/nuScenes/train/samples"
-splits_dir = "../data/nuScenes/splits"
-names_path = "./names/BEV.names"
+cfg_model_file = "../cfg/model/yolov4_BEV_flat_nuScenes.cfg"
+weights = "../checkpoints/nuScenes_e50_lr0.001_noF/Yolo_BEV_flat_nuScenes_epoch45_.pth"
+train_dir = "../../data/nuScenes/train/samples"
+splits_dir = "../../data/nuScenes/splits"
+names_path = "../names/BEV.names"
 iou_type = "rIoU"
 iou_thres = 0.1
 conf_thres = 0.8

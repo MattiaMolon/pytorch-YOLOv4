@@ -484,17 +484,19 @@ class Yolo_dataset(Dataset):
 class Yolo_BEV_dataset(Dataset):
     """BEV pytorch dataset to load KITTI"""
 
-    def __init__(self, config: edict, split: str = "train", input_type="nuScenes") -> None:
+    def __init__(self, config: edict, split: str = "train", input_type="nuScenes", return_area=False) -> None:
         """
         Args:
             config (edict): Easy directory configuration file
             split (str): Split to load. Can be ["train", "test", "val"]. Default = train.
             input_type (str): Dataset used to select FOV and canvas. Can be ["KITTI", "nuScenes"]. Default = nuScenes.
+            return_area (bool): Defines if we want to return area labels. Default = False
         """
         super(Yolo_BEV_dataset, self).__init__()
         self.cfg = config
         self.split = split
         self.input_type = input_type
+        self.return_area = return_area
 
         # read images paths
         self.img_paths = []
@@ -502,15 +504,25 @@ class Yolo_BEV_dataset(Dataset):
             for line in f:
                 self.img_paths.append(line.strip())
 
+        # read area paths
+        if self.return_area:
+            self.area_paths = []
+            with open(os.path.join(self.cfg.dataset_dir, f"{split}_areas.txt"), "r") as f:
+                for line in f:
+                    self.area_paths.append(line.strip())
+
         # read labels
         column_types = {
             "ID": str,
             "alpha": float,
+            "x": float,
+            "z": float,
             "3D_d": float,
             "3D_l": float,
             "3D_w": float,
             "cos": float,
             "sin": float,
+            "ry": float,
             "type": str,
         }
         self.labels = pd.read_csv(
@@ -576,20 +588,24 @@ class Yolo_BEV_dataset(Dataset):
             exit(1)
 
         ############## read labels
-        if self.input_type == "KITTI":
-            label_id = self.img_paths[idx].split("/")[-1].split(".")[0]
-        elif self.input_type == "nuScenes":
-            splits = self.img_paths[idx].split("/")
-            label_id = splits[-2] + "/" + splits[-1]
-        matches = self.labels[self.labels["ID"] == label_id]
+        if not self.return_area:
+            if self.input_type == "KITTI":
+                label_id = self.img_paths[idx].split("/")[-1].split(".")[0]
+            elif self.input_type == "nuScenes":
+                splits = self.img_paths[idx].split("/")
+                label_id = splits[-2] + "/" + splits[-1]
+            matches = self.labels[self.labels["ID"] == label_id]
 
-        # check if img has labels
-        if matches.empty:
-            labels = np.array([-1.0 for _ in range(7)])
+            # check if img has labels
+            if matches.empty:
+                labels = np.array([-1.0 for _ in range(7)])
+            else:
+                matches = matches.loc[:, matches.columns != "ID"]
+                matches = matches.replace({"cls": self.mapping})
+                labels = matches.to_numpy().astype(np.float)
+
         else:
-            matches = matches.loc[:, matches.columns != "ID"]
-            matches = matches.replace({"cls": self.mapping})
-            labels = matches.to_numpy().astype(np.float)
+            labels = np.load(self.area_paths[idx].strip())
 
         return img, labels
 

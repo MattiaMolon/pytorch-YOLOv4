@@ -5,16 +5,11 @@ from typing import List
 import numpy as np
 
 
-def yolo_BEV_dist_forward(
-    prediction: torch.Tensor,
-    num_predictors: int,
-    device: str,
-) -> torch.Tensor:
+def yolo_BEV_dist_forward(prediction: torch.Tensor, num_predictors: int) -> torch.Tensor:
     """Forward pass of Yolo_BEV_flat, obtain bboxes inside feature map.
 
     Args:
         prediction (torch.Tensor): prediction from the last convolutional layer
-        num_anchors (int): num of anchors used
         num_predictors (int): num of predictions on each cell
 
     Returns:

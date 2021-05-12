@@ -31,4 +31,7 @@
 - [x] visualization integration
 
 ## How to use demos and post_training scripts
-run demos on the main directory by running "python demos/<demo name>" or "python post_training/<script name>
+run demos on the root directory by running "python demos/<demo name>" or "python post_training/<script name>"
+
+## How to train
+move from train_files to the root directory the train file of interest and then run "python train_<train name>"
