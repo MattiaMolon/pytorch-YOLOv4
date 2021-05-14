@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from easydict import EasyDict as edict
 
 from dataset import Yolo_BEV_dataset
-from cfg.train.cfg_yolov4_BEV_dist_nuScenes import Cfg
+from cfg.train.cfg_yolov4_BEV_area_nuScenes import Cfg
 
 from tool.darknet2pytorch import Darknet
 
@@ -41,8 +41,8 @@ class Yolo_loss(nn.Module):
         super().__init__()
         # loss
         self.bce = nn.BCELoss(reduction="none")
-        self.gamma = 5
-        self.alpha = 0.2
+        self.gamma = 6.0
+        self.alpha = 50.0
 
         # params
         self.device = device
@@ -70,14 +70,14 @@ class Yolo_loss(nn.Module):
                 pred = torch.sigmoid(pred)
 
             ################### get labels
-            target = labels[pred_id]
+            target = torch.Tensor(labels[pred_id]).float().to(self.device)
 
             ################### compute loss
             # ####### focal loss (obj and noobj)
-            pt = torch.where(target == 1, pred, 1 - pred)
+            pt = torch.where(target == 1.0, pred, 1.0 - pred)
             ce = -torch.log(pt)
-            alpha_ = torch.where(target == 1, self.alpha, 1)
-            focal_sample = alpha_ * ((1 - pt) ** self.gamma) * ce
+            alpha_ = torch.where(target == 1.0, self.alpha, 1.0)
+            focal_sample = alpha_ * ((1.0 - pt) ** self.gamma) * ce
             focal_loss += focal_sample.sum()
 
         return focal_loss

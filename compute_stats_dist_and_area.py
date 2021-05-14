@@ -1,8 +1,3 @@
-import sys
-import os
-
-sys.path.insert(0, os.path.abspath("."))
-
 import torch
 from tool.darknet2pytorch import Darknet
 from torch.utils.data import DataLoader
@@ -23,34 +18,35 @@ else:
 # collate function for data loader
 def collate(batch):
     images = []
-    bboxes = []
-    for img, box in batch:
+    labels = []
+    for img, lab in batch:
         images.append([img])
-        if len(box.shape) == 1:
-            bboxes.append(np.expand_dims(box, 0))
+        if len(lab.shape) == 1:
+            labels.append(np.expand_dims(lab, 0))
         else:
-            bboxes.append(box)
+            labels.append(lab)
 
     images = np.concatenate(images, axis=0)
     images = images.transpose(0, 3, 1, 2)
     images = torch.from_numpy(images)
-    return images, bboxes
+    return images, labels
 
 
 # params
-cfg.weights = "../checkpoints/Yolo_BEV_dist_nuScenes_epoch43__BESTSOFAR.pth"
-cfg.dataset_dir = "../../data/nuScenes/splits"
-cfg.cfgfile = "../cfg/model/yolov4_BEV_dist_nuScenes.cfg"
-cfg.names_path = "../names/BEV.names"
+cfg.weights = "./checkpoints/area_focalloss_alpha0.2_gamma5/Yolo_BEV_area_nuScenes_epoch89__BESTSOFAR.pth"
+cfg.dataset_dir = "../data/nuScenes/splits"
+cfg.cfgfile = "./cfg/model/yolov4_BEV_dist_nuScenes.cfg"
+cfg.names_path = "./names/BEV.names"
 cfg.save_predictions = False
+is_area = True
 
 if __name__ == "__main__":
 
-    tresholds = [0.41, 0.42, 0.43, 0.44, 0.45, 0.46, 0.47, 0.48, 0.49, 0.5, 0.51]
+    tresholds = np.arange(0, 1, 0.01)
     stats = {t: {"TP": 0, "TN": 0, "FP": 0, "FN": 0} for t in tresholds}
 
     # dataset
-    test_dataset = Yolo_BEV_dataset(cfg, split="val", input_type="nuScenes")
+    test_dataset = Yolo_BEV_dataset(cfg, split="val", input_type="nuScenes", return_area=True)
     test_loader = DataLoader(
         test_dataset,
         batch_size=cfg.batch // cfg.subdivisions,
@@ -88,18 +84,21 @@ if __name__ == "__main__":
             row_size = preds.shape[1]
             for pred_id, (pred, img) in enumerate(zip(preds, images)):
 
-                # generate labels
-                pred_labels = labels[pred_id]
-                pred_labels[:, 0] += (row_size * cfg.cell_angle) / 2  # adjust angle with fov
-                has_labels = pred_labels[0][-1] >= 0.0
+                if is_area:
+                    target = torch.Tensor(labels[pred_id]).float().to(device)
+                else:
+                    # generate labels
+                    pred_labels = labels[pred_id]
+                    pred_labels[:, 0] += (row_size * cfg.cell_angle) / 2  # adjust angle with fov
+                    has_labels = pred_labels[0][-1] >= 0.0
 
-                # target matrix
-                target = torch.zeros((row_size, cfg.num_predictors)).to(device)
-                if has_labels:
-                    for label in pred_labels:
-                        angle_i = int(label[0] // cfg.cell_angle)
-                        distance_i = int(label[1] // cfg.cell_depth)
-                        target[angle_i, distance_i] = 1.0
+                    # target matrix
+                    target = torch.zeros((row_size, cfg.num_predictors)).to(device)
+                    if has_labels:
+                        for label in pred_labels:
+                            angle_i = int(label[0] // cfg.cell_angle)
+                            distance_i = int(label[1] // cfg.cell_depth)
+                            target[angle_i, distance_i] = 1.0
 
                 # compute stats
                 for t in stats.keys():
@@ -130,13 +129,14 @@ if __name__ == "__main__":
     # compute stats
     max_pr, max_ac, max_re, max_f1, t_pr, t_ac, t_re, t_f1 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     for t in stats.keys():
-        stats[t]["Precision"] = stats[t]["TP"] / (stats[t]["TP"] + stats[t]["FP"])
+        stats[t]["Precision"] = stats[t]["TP"] / (stats[t]["TP"] + stats[t]["FP"] + 1e-16)
         stats[t]["Accuracy"] = (stats[t]["TP"] + stats[t]["TN"]) / (
-            stats[t]["TP"] + stats[t]["FP"] + stats[t]["TN"] + stats[t]["FN"]
+            stats[t]["TP"] + stats[t]["FP"] + stats[t]["TN"] + stats[t]["FN"] + 1e-16
         )
-        stats[t]["Recall"] = stats[t]["TP"] / (stats[t]["TP"] + stats[t]["FN"])
+        stats[t]["Recall"] = stats[t]["TP"] / (stats[t]["TP"] + stats[t]["FN"] + 1e-16)
         stats[t]["F1-score"] = 2 * (
-            (stats[t]["Precision"] * stats[t]["Recall"]) / (stats[t]["Precision"] + stats[t]["Recall"])
+            (stats[t]["Precision"] * stats[t]["Recall"])
+            / (stats[t]["Precision"] + stats[t]["Recall"] + 1e-16)
         )
 
         # get max

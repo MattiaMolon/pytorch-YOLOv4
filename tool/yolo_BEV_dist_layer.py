@@ -50,4 +50,4 @@ class YoloBEVDistLayer(nn.Module):
             return output
 
         # Apply activation functions over predictions
-        return yolo_BEV_dist_forward(output, self.num_predictors, self.device)
+        return yolo_BEV_dist_forward(output, self.num_predictors)
