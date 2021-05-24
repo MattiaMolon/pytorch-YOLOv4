@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from easydict import EasyDict as edict
 
 from dataset import Yolo_BEV_dataset
-from cfg.train.cfg_yolov4_BEV_area_nuScenes import Cfg
+from cfg.train.cfg_yolov4_BEV_area_nuScenes_max import Cfg
 
 from tool.darknet2pytorch import Darknet
 
@@ -39,8 +39,9 @@ def collate(batch):
 class Yolo_loss(nn.Module):
     def __init__(self, cfg, device):
         super().__init__()
-        # loss
-        self.bce = nn.BCELoss(reduction="none")
+        self.loss = cfg.loss
+
+        # focal loss
         self.gamma = 6.0
         self.alpha = 50.0
 
@@ -52,7 +53,7 @@ class Yolo_loss(nn.Module):
 
     def forward(self, preds, labels, eval=False):
         # params
-        focal_loss = 0.0
+        loss = 0.0
         row_size = preds.shape[-1] if not eval else preds.shape[1]
 
         for pred_id, pred in enumerate(preds):
@@ -73,14 +74,20 @@ class Yolo_loss(nn.Module):
             target = torch.Tensor(labels[pred_id]).float().to(self.device)
 
             ################### compute loss
-            # ####### focal loss (obj and noobj)
-            pt = torch.where(target == 1.0, pred, 1.0 - pred)
-            ce = -torch.log(pt)
-            alpha_ = torch.where(target == 1.0, self.alpha, 1.0)
-            focal_sample = alpha_ * ((1.0 - pt) ** self.gamma) * ce
-            focal_loss += focal_sample.sum()
+            if self.loss == "focal_loss":
+                pt = torch.where(target == 1.0, pred, 1.0 - pred)
+                ce = -torch.log(pt)
+                alpha_ = torch.where(target == 1.0, self.alpha, 1.0)
+                focal_loss = alpha_ * ((1.0 - pt) ** self.gamma) * ce
+                loss += focal_loss.sum()
 
-        return focal_loss
+            elif self.loss == "dice_loss":
+                numerator = 2 * (pred * target).sum()
+                denominator = (pred ** 2).sum() + (target ** 2).sum() + 1e-16
+                dice_loss = 1 - numerator / denominator
+                loss += dice_loss
+
+        return loss
 
 
 def train(
@@ -139,6 +146,8 @@ def train(
         Input width:     {config.width}
         Optimizer:       {config.TRAIN_OPTIMIZER}
         Dataset classes: {config.classes}
+        Grid dimension:  {config.num_columns}x{config.num_predictors}
+        Loss function:   {config.loss}
     """
     )
 

@@ -7,7 +7,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 from dataset import Yolo_BEV_dataset
-from cfg.train.cfg_yolov4_BEV_dist_nuScenes import Cfg as cfg
+
+# params
+is_area = False
+
+if is_area:
+    from cfg.train.cfg_yolov4_BEV_area_nuScenes import Cfg as cfg
+else:
+    from cfg.train.cfg_yolov4_BEV_dist_nuScenes import Cfg as cfg
+
+cfg.weights = (
+    "./checkpoints/dist_focalloss_noalpha_gamma6_rows10_sgd/Yolo_BEV_dist_nuScenes_epoch43__BESTSOFAR.pth"
+)
+cfg.dataset_dir = "../data/nuScenes/splits"
+cfg.names_path = "./names/BEV.names"
+cfg.save_predictions = False
 
 # check for cuda
 if torch.cuda.is_available():
@@ -32,21 +46,13 @@ def collate(batch):
     return images, labels
 
 
-# params
-cfg.weights = "./checkpoints/area_focalloss_alpha0.2_gamma5/Yolo_BEV_area_nuScenes_epoch89__BESTSOFAR.pth"
-cfg.dataset_dir = "../data/nuScenes/splits"
-cfg.cfgfile = "./cfg/model/yolov4_BEV_dist_nuScenes.cfg"
-cfg.names_path = "./names/BEV.names"
-cfg.save_predictions = False
-is_area = True
-
 if __name__ == "__main__":
 
     tresholds = np.arange(0, 1, 0.01)
     stats = {t: {"TP": 0, "TN": 0, "FP": 0, "FN": 0} for t in tresholds}
 
     # dataset
-    test_dataset = Yolo_BEV_dataset(cfg, split="val", input_type="nuScenes", return_area=True)
+    test_dataset = Yolo_BEV_dataset(cfg, split="val", input_type="nuScenes", return_area=is_area)
     test_loader = DataLoader(
         test_dataset,
         batch_size=cfg.batch // cfg.subdivisions,

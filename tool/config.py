@@ -105,6 +105,47 @@ def print_cfg(blocks):
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
 
+        elif block["type"] == "myMaxpool":
+            pool_size = (
+                (int(block["size"]),) * 2
+                if "," not in block["size"]
+                else tuple([int(x) for x in block["size"].split(",")])
+            )
+            stride = (
+                (int(block["stride"]),) * 2
+                if "," not in block["stride"]
+                else tuple([int(x) for x in block["stride"].split(",")])
+            )
+            padding = (
+                (int(block["pad"]),) * 2
+                if "," not in block["pad"]
+                else tuple([int(x) for x in block["pad"].split(",")])
+            )
+            height = int(((prev_height + 2 * padding[0] - (pool_size[0] - 1) - 1) / stride[0]) + 1)
+            width = int(((prev_width + 2 * padding[1] - (pool_size[1] - 1) - 1) / stride[1]) + 1)
+            print(
+                "%5d %-6s       %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d"
+                % (
+                    ind,
+                    "max",
+                    pool_size[0],
+                    pool_size[1],
+                    stride[0],
+                    prev_height,
+                    prev_width,
+                    prev_filters,
+                    height,
+                    width,
+                    filters,
+                )
+            )
+            prev_width = width
+            prev_height = height
+            prev_filters = filters
+            out_widths.append(prev_width)
+            out_heights.append(prev_height)
+            out_filters.append(prev_filters)
+
         elif block["type"] == "maxpool":
             pool_size = int(block["size"])
             stride = int(block["stride"])

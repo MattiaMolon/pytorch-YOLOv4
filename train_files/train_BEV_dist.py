@@ -13,11 +13,9 @@ from torch.utils.data import DataLoader
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
 from easydict import EasyDict as edict
-from tool.utils import my_IoU
 
 from dataset import Yolo_BEV_dataset
 from cfg.train.cfg_yolov4_BEV_dist_nuScenes import Cfg
-import pandas as pd
 
 from tool.darknet2pytorch import Darknet
 

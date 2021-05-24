@@ -166,7 +166,7 @@ class Darknet(nn.Module):
             if block["type"] == "net":
                 continue
 
-            elif block["type"] in ["convolutional", "maxpool", "upsample"]:
+            elif block["type"] in ["convolutional", "myMaxpool", "maxpool", "upsample"]:
                 x = self.model[ind](x)
                 outputs[ind] = x
 
@@ -370,7 +370,40 @@ class Darknet(nn.Module):
                 out_strides.append(prev_stride)
                 model.append(conv)
 
+            elif block["type"] == "myMaxpool":
+
+                pool_size = (
+                    (int(block["size"]),) * 2
+                    if "," not in block["size"]
+                    else tuple([int(x) for x in block["size"].split(",")])
+                )
+                stride = (
+                    (int(block["stride"]),) * 2
+                    if "," not in block["stride"]
+                    else tuple([int(x) for x in block["stride"].split(",")])
+                )
+                padding = (
+                    (int(block["pad"]),) * 2
+                    if "," not in block["pad"]
+                    else tuple([int(x) for x in block["pad"].split(",")])
+                )
+                maxpool = nn.MaxPool2d(kernel_size=pool_size, stride=stride, padding=padding)
+
+                # test if maxpool is correctly generated
+                try:
+                    input = torch.ones((1, 10, 10, 20))
+                    output = maxpool(input)
+                except Exception as e:
+                    print(e)
+                    quit(0)
+
+                out_filters.append(prev_filters)
+                prev_stride = stride[0] * prev_stride
+                out_strides.append(prev_stride)
+                model.append(maxpool)
+
             elif block["type"] == "maxpool":
+
                 pool_size = int(block["size"])
                 stride = int(block["stride"])
 
@@ -527,6 +560,8 @@ class Darknet(nn.Module):
                     start = load_conv(buf, start, model[0])
             elif block["type"] == "maxpool":
                 pass
+            elif block["type"] == "myMaxpool":
+                pass
             elif block["type"] == "upsample":
                 pass
             elif block["type"] == "route":
@@ -566,6 +601,8 @@ class Darknet(nn.Module):
                 else:
                     save_conv(fp, model[0])
             elif block["type"] == "maxpool":
+                pass
+            elif block["type"] == "myMaxpool":
                 pass
             elif block["type"] == "upsample":
                 pass

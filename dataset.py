@@ -538,7 +538,7 @@ class Yolo_BEV_dataset(Dataset):
         self.mapping = {}
         with open(self.cfg.names_path, "r") as f:
             for i, line in enumerate(f):
-                self.mapping[line] = float(i)
+                self.mapping[line.strip()] = float(i)
 
     def __len__(self) -> int:
         """Number of elements in dataset
@@ -602,6 +602,7 @@ class Yolo_BEV_dataset(Dataset):
             else:
                 matches = matches.loc[:, matches.columns != "ID"]
                 matches = matches.replace({"cls": self.mapping})
+                matches = matches[["alpha", "3D_d", "3D_w", "3D_l", "sin", "cos", "cls"]]
                 labels = matches.to_numpy().astype(np.float)
 
         else:

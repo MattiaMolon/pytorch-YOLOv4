@@ -8,7 +8,7 @@ Cfg = EasyDict()
 # paths
 Cfg.checkpoints = os.path.join(_BASE_DIR, "checkpoints")
 Cfg.TRAIN_TENSORBOARD_DIR = os.path.join(_BASE_DIR, "log")
-Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_area_nuScenes.cfg")
+Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4_BEV_area_nuScenes_max.cfg")
 
 # nuScenes input dim
 Cfg.width = 240
@@ -17,8 +17,8 @@ Cfg.channels = 3
 
 # nuScenes BEV params
 Cfg.cell_angle = 4.6666666667
-Cfg.cell_depth = 1.0
-Cfg.num_predictors = 50
+Cfg.cell_depth = 2.5
+Cfg.num_predictors = 20
 Cfg.num_columns = 15
 
 # training params
@@ -28,7 +28,7 @@ Cfg.subdivisions = 4
 Cfg.max_batches = 6000000
 
 # loss and optimizer
-Cfg.loss = "dice_loss"
+Cfg.loss = "focal_loss"
 Cfg.TRAIN_OPTIMIZER = "sgd"
 
 # learning rate
