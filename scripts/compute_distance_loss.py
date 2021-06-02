@@ -28,12 +28,14 @@ if torch.cuda.is_available():
 else:
     device = "cpu"
 
-# collate function for data loader
+
 def collate(batch):
     images = []
     labels = []
-    for img, lab in batch:
+    paths = []
+    for img, lab, path in batch:
         images.append([img])
+        paths.append([path])
         if len(lab.shape) == 1:
             labels.append(np.expand_dims(lab, 0))
         else:
@@ -42,7 +44,7 @@ def collate(batch):
     images = np.concatenate(images, axis=0)
     images = images.transpose(0, 3, 1, 2)
     images = torch.from_numpy(images)
-    return images, labels
+    return images, labels, paths
 
 
 # dataset

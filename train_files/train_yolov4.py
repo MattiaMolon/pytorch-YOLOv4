@@ -331,15 +331,17 @@ class Yolo_loss(nn.Module):
 def collate(batch):
     images = []
     bboxes = []
-    for img, box in batch:
+    paths = []
+    for img, box, path in batch:
         images.append([img])
         bboxes.append([box])
+        paths.append(path)
     images = np.concatenate(images, axis=0)
     images = images.transpose(0, 3, 1, 2)
     images = torch.from_numpy(images).div(255.0)
     bboxes = np.concatenate(bboxes, axis=0)
     bboxes = torch.from_numpy(bboxes)
-    return images, bboxes
+    return images, bboxes, paths
 
 
 def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=20, img_scale=0.5):

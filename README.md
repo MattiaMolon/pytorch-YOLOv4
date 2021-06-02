@@ -30,8 +30,16 @@
 - [x] Loss implementation
 - [x] visualization integration
 
-## How to use demos and post_training scripts
-run demos on the root directory by running "python demos/<demo name>" or "python post_training/<script name>"
+## How to use demos and scripts
+run demos and scripts on the root directory by running "python <folder>/<python file name>"
+Tested on:
+- [x] demos/demo_yolov4_BEV_dist.py
+- [x] demos/demo_yolov4_BEV_flat.py
+- [ ] demos/demo_yolov4_BEV_grid.py
+- [x] demos/demo_yolov4.py
+- [x] scripts/predict_and_save_yolov4.py
+- [ ] scripts/compute_AP_flat.py
+- [ ] scripts/compute_distance_loss.py
 
 ## How to train
 move from train_files to the root directory the train file of interest and then run "python train_<train name>"

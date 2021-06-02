@@ -24,18 +24,20 @@ from tool.darknet2pytorch import Darknet
 
 def collate(batch):
     images = []
-    bboxes = []
-    for img, box in batch:
+    labels = []
+    paths = []
+    for img, lab, path in batch:
         images.append([img])
-        if len(box.shape) == 1:
-            bboxes.append(np.expand_dims(box, 0))
+        paths.append([path])
+        if len(lab.shape) == 1:
+            labels.append(np.expand_dims(lab, 0))
         else:
-            bboxes.append(box)
+            labels.append(lab)
 
     images = np.concatenate(images, axis=0)
     images = images.transpose(0, 3, 1, 2)
     images = torch.from_numpy(images)
-    return images, bboxes
+    return images, labels, paths
 
 
 class Yolo_loss(nn.Module):

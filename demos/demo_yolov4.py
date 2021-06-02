@@ -9,36 +9,38 @@ from tool.darknet2pytorch import Darknet
 import argparse
 
 """hyper parameters"""
-use_cuda = False
+# check for cuda
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
 
 def detect_cv2(cfgfile, weightfile, imgfile):
     import cv2
 
-    m = Darknet(cfgfile)
+    m = Darknet(cfgfile, model_type="Yolov4")
     # m.print_network()
     m.load_weights(weightfile)
     print("Loading weights from %s... Done!" % (weightfile))
-
-    if use_cuda:
-        m.cuda()
+    m.to(device)
 
     num_classes = m.num_classes
     if num_classes == 20:
-        namesfile = "data/voc.names"
+        namesfile = "names/voc.names"
     elif num_classes == 80:
-        namesfile = "data/coco.names"
+        namesfile = "names/coco.names"
     else:
-        namesfile = "data/x.names"
+        namesfile = "names/x.names"
     class_names = load_class_names(namesfile)
 
     img = cv2.imread(imgfile)
-    sized = cv2.resize(img, (m.width, m.height))
-    sized = cv2.cvtColor(sized, cv2.COLOR_BGR2RGB)
+    input = cv2.resize(img, (m.width, m.height))
+    input = cv2.cvtColor(input, cv2.COLOR_BGR2RGB)
 
-    for i in range(2):
+    for i in range(1):
         start = time.time()
-        boxes = do_detect(m, sized, 0.4, 0.6, use_cuda)
+        boxes = do_detect(m, input, device, 0.4, 0.6)
         finish = time.time()
         if i == 1:
             print("%s: Predicted in %f seconds." % (imgfile, (finish - start)))
@@ -65,7 +67,7 @@ def get_args():
     parser.add_argument(
         "-imgfile",
         type=str,
-        default="../data/KITTI/training/images/000001.png",
+        default="/home/mattia/university/Master_thesis/data/nuScenes/samples/CAM_FRONT/n008-2018-08-01-15-16-36-0400__CAM_FRONT__1533151604012404.jpg",
         help="path of your image file.",
         dest="imgfile",
     )

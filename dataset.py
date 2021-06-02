@@ -608,7 +608,7 @@ class Yolo_BEV_dataset(Dataset):
         else:
             labels = np.load(self.area_paths[idx].strip())
 
-        return img, labels
+        return img, labels, self.img_paths[idx]
 
 
 def get_image_id(filename: str) -> int:

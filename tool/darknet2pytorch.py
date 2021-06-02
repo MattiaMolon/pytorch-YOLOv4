@@ -206,9 +206,13 @@ class Darknet(nn.Module):
 
             elif block["type"] == "yolo":
                 boxes = self.model[ind](x)
-                if self.training:  # no preprocessing on output
+
+                # no preprocessing on output
+                if self.training or self.model_type == "Yolov4":
                     out_boxes.append(boxes)
-                else:  # returned preprocessed bboxes
+
+                # need to concatenate on out_boxes
+                else:
                     if not concat_output:
                         out_boxes = boxes
                         concat_output = True

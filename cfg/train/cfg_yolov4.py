@@ -8,11 +8,24 @@ Cfg = EasyDict()
 
 Cfg.use_darknet_cfg = True
 Cfg.cfgfile = os.path.join(_BASE_DIR, "cfg", "model", "yolov4.cfg")
+Cfg.weights_file = os.path.join(_BASE_DIR, "checkpoints", "yolov4.weights")
+
+################################
+# mine
+Cfg.num_predictors = 50
+Cfg.num_columns = 15
+Cfg.obj_thresh = 0.5
+Cfg.nms_thresh = 0.6
+Cfg.est_height = 1.6843
+Cfg.est_focall = 1532.2721
+Cfg.img_width = 1600
+Cfg.img_height = 900
+################################
 
 Cfg.batch = 64
 Cfg.subdivisions = 16
-Cfg.width = 608
-Cfg.height = 608
+Cfg.width = 256
+Cfg.height = 160
 Cfg.channels = 3
 Cfg.momentum = 0.949
 Cfg.decay = 0.0005
